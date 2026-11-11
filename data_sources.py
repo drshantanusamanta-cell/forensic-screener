@@ -639,9 +639,11 @@ class ScreenerClient:
         def sch(parent, item):
             d = sched.get(parent, {}).get(item)
             if not d:
-                return pd.Series(dtype=float)
+                # aligned all-missing series (an unaligned empty Series made sums like
+                # Other Liabilities + Short-term borrowings come out missing for debt-free companies)
+                return pd.Series(np.nan, index=cols, dtype=float)
             s = pd.Series({_period_to_fy(k)[0]: v for k, v in d.items()
-                           if _period_to_fy(k)[1] == ye_month})
+                           if _period_to_fy(k)[1] == ye_month}, dtype=float)
             return s.reindex(cols)
 
         put("revenue", pl, "Sales", "Revenue")
