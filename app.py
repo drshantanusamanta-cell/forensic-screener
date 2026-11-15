@@ -60,6 +60,20 @@ def get_financials(symbol: str):
 
 
 @st.cache_data(ttl=12 * 3600, show_spinner=False)
+def get_price_history(symbol: str):
+    """Weekly NSE closing prices (split/bonus-adjusted) from Yahoo; None if unavailable."""
+    try:
+        h = yf.Ticker(f"{symbol}.NS").history(period="max", interval="1wk", auto_adjust=True)
+        if h is None or h.empty:
+            return None
+        px = h["Close"].dropna()
+        px.index = pd.to_datetime(px.index).tz_localize(None)
+        return px
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=12 * 3600, show_spinner=False)
 def get_screener(symbol: str, consolidated: bool, name: str | None = None, version: int = 2):
     # version: bump when the data layer adds fields, so the cache doesn't serve older results
     return ds.ScreenerClient().load(symbol, prefer_consolidated=consolidated, name=name)
@@ -366,22 +380,46 @@ with t7:
     if tline.empty:
         st.info("Not enough annual history for a timeline (needs at least three years).")
     else:
+        # plot each score at its fiscal year-end so it lines up with the price on a date axis
+        ye_m = 12 if any(str(c).startswith("Dec") for c in (sc_res or {}).get("tables", {}).get("profit-loss", pd.DataFrame()).columns) else 3
+        tx = [pd.Timestamp(int(y[2:]), ye_m, 1) + pd.offsets.MonthEnd(0) for y in tline.index]
+        show_px = st.toggle("Show share price", value=True, key="tl_px")
+        log_px = st.toggle("Log price scale", value=False, key="tl_log") if show_px else False
+        px = get_price_history(symbol) if show_px else None
         fig = go.Figure()
         for lo, hi, colr in ((0, 20, "rgba(43,138,62,0.10)"), (20, 35, "rgba(250,176,5,0.12)"),
                              (35, 55, "rgba(232,89,12,0.12)"), (55, 100, "rgba(201,42,42,0.12)")):
             fig.add_hrect(y0=lo, y1=hi, fillcolor=colr, line_width=0)
-        fig.add_trace(go.Scatter(x=tline.index, y=tline["score"], mode="lines+markers", name="Score",
+        if px is not None:
+            px = px[px.index >= tx[0] - pd.DateOffset(years=1)]
+            fig.add_trace(go.Scatter(x=px.index, y=px.values, mode="lines", name="Share price (₹, right axis)",
+                                     line=dict(color="#1c7ed6", width=1.6), yaxis="y2", opacity=0.85,
+                                     hovertemplate="%{x|%d %b %Y}: ₹%{y:,.2f}<extra></extra>"))
+        fig.add_trace(go.Scatter(x=tx, y=tline["score"], mode="lines+markers", name="Score",
+                                 text=list(tline.index),
                                  line=dict(color="#c92a2a", width=3),
                                  customdata=tline[["red", "watch"]].values,
-                                 hovertemplate="%{x}: %{y:.0f}<br>%{customdata[0]} red · %{customdata[1]} watch"
+                                 hovertemplate="%{text}: %{y:.0f}<br>%{customdata[0]} red · %{customdata[1]} watch"
                                                "<extra></extra>"))
         if tline["stress"].notna().any():
-            fig.add_trace(go.Scatter(x=tline.index, y=tline["stress"], mode="lines+markers", name="Balance-sheet stress",
-                                     line=dict(color="#495057", width=2, dash="dot"),
-                                     hovertemplate="%{x}: stress %{y:.0f}<extra></extra>"))
-        fig.update_layout(height=340, margin=dict(l=10, r=10, t=10, b=10), yaxis=dict(range=[0, 100], title="Score"),
-                          showlegend=True, legend=dict(orientation="h", y=-0.15))
+            fig.add_trace(go.Scatter(x=tx, y=tline["stress"], mode="lines+markers", name="Balance-sheet stress",
+                                     text=list(tline.index), line=dict(color="#495057", width=2, dash="dot"),
+                                     hovertemplate="%{text}: stress %{y:.0f}<extra></extra>"))
+        layout = dict(height=380, margin=dict(l=10, r=10, t=10, b=10), hovermode="closest",
+                      yaxis=dict(range=[0, 100], title="Score"),
+                      xaxis=dict(tickvals=tx, ticktext=list(tline.index)),
+                      showlegend=True, legend=dict(orientation="h", y=-0.15))
+        if px is not None:
+            layout["yaxis2"] = dict(title="Price (₹)", overlaying="y", side="right", showgrid=False, tickformat=",.0f",
+                                    type="log" if log_px else "linear", rangemode="tozero" if not log_px else None)
+        fig.update_layout(**layout)
         st.plotly_chart(fig, width="stretch")
+        if show_px and px is None:
+            st.caption("Share price unavailable from Yahoo for this symbol (delisted or renamed).")
+        elif px is not None:
+            st.caption("Scores are plotted at each fiscal year-end; the accounts behind them are usually published "
+                       "4–8 weeks later, so compare the score with the price from about two months after each point. "
+                       "Price: Yahoo Finance, weekly close adjusted for splits and bonuses.")
         latest_live = comp["score"]
         st.caption("Shaded bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 high. "
                    "Only statement-based checks are replayed (no pledges, filings, peers or the Screener "
