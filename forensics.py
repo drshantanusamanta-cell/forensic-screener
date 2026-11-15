@@ -39,8 +39,11 @@ class Flag:
 # helpers
 # --------------------------------------------------------------------------
 def _row(fin: pd.DataFrame, k: str) -> pd.Series:
-    if fin is None or k not in fin.index:
+    if fin is None:
         return pd.Series(dtype=float)
+    if k not in fin.index:
+        # missing field (older cached data, Yahoo, Excel upload) -> all-NaN row so year indexing still works
+        return pd.Series(np.nan, index=fin.columns, dtype=float)
     return pd.to_numeric(fin.loc[k], errors="coerce")
 
 

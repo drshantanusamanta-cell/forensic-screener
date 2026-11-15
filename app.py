@@ -60,7 +60,8 @@ def get_financials(symbol: str):
 
 
 @st.cache_data(ttl=12 * 3600, show_spinner=False)
-def get_screener(symbol: str, consolidated: bool, name: str | None = None):
+def get_screener(symbol: str, consolidated: bool, name: str | None = None, version: int = 2):
+    # version: bump when the data layer adds fields, so the cache doesn't serve older results
     return ds.ScreenerClient().load(symbol, prefer_consolidated=consolidated, name=name)
 
 
@@ -174,7 +175,7 @@ if not symbol:
 with st.spinner(f"Collecting data for {symbol}…"):
     fin_yf, info, fin_err = get_financials(symbol)
     fin, source, src_note = fin_yf, "Yahoo Finance", None
-    sc_res, sc_err = get_screener(symbol, consolidated, st.session_state.get("company"))
+    sc_res, sc_err = get_screener(symbol, consolidated, st.session_state.get("company"), 2)
     sc_meta = sc_res["meta"] if sc_res else {}
     if src_choice.startswith("Screener"):
         if sc_res is not None and sc_res["fin"].shape[1] >= 2:
