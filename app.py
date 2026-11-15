@@ -612,7 +612,7 @@ Bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 hi
 - Cash and debt both above 15% of assets watch, both above 25% red
 - 3-year effective tax rate below 12% red, 12–18% watch
 - Non-operating income above 40% of pre-tax profit red
-- Weights set by the backtest: cash conversion 3; Beneish 2 (it fired in 14% of clean years); Montier 1; non-operating income, tax and dilution raised (red in 23–31% of failures, 0% of clean years)
+- Weights set by the backtest: cash conversion 3; Beneish 2 (it fired in 14% of clean years); Montier 1; non-operating income, tax and dilution raised (red in about a quarter of failures, 0% of clean years)
 
 **Balance-sheet stress** (separate score, not part of the red-flag score; same formula, bands under 25 low, 25–50 moderate, 50+ high)
 - Interest cover (EBIT ÷ interest, 3 yrs): below 2.5× watch, below 1.5× red, when debt is over 5% of assets
