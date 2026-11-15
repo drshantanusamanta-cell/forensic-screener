@@ -33,6 +33,7 @@ METRICS = [
     "current_liabilities", "total_assets", "total_liabilities", "equity",
     "retained_earnings", "net_ppe", "gross_ppe", "cwip", "intangibles", "cash",
     "securities", "lt_debt", "total_debt", "deposits",
+    "payables", "exceptional", "shares",
 ]
 
 # --------------------------------------------------------------------------
@@ -176,6 +177,9 @@ YF_MAP = {
     "securities": [("bs", ["Investmentin Financial Assets", "Other Short Term Investments"])],
     "lt_debt": [("bs", ["Long Term Debt", "Long Term Debt And Capital Lease Obligation"])],
     "total_debt": [("bs", ["Total Debt"])],
+    "payables": [("bs", ["Accounts Payable", "Payables"])],
+    "exceptional": [("is", ["Total Unusual Items", "Total Unusual Items Excluding Goodwill"])],
+    "shares": [("is", ["Diluted Average Shares", "Basic Average Shares"])],   # count / 1e7 = crore shares
 }
 
 
@@ -548,6 +552,9 @@ class ScreenerClient:
         tried = [True, False] if prefer_consolidated else [False, True]
         last_err = "no data"
         path = None
+        now = pd.Timestamp.now()
+        fresh_fy = now.year - (0 if now.month > 3 else 1) - 1   # last annual year a current filer should have
+        cands = []
         for cons in tried:
             try:
                 soup, url, err = self._page(symbol, cons, path)
@@ -572,6 +579,22 @@ class ScreenerClient:
             if rev_lab is None or pl.loc[rev_lab].notna().sum() < 2:
                 last_err = f"{'consolidated' if cons else 'standalone'} view has no annual figures"
                 continue
+            rv = pl.loc[rev_lab].dropna()
+            fys = [int(f[2:]) for f in (_period_to_fy(c)[0] for c in rv.index) if f]
+            cands.append({"cons": cons, "soup": soup, "url": url, "tables": tables, "rev_lab": rev_lab,
+                          "n": len(fys), "last": max(fys) if fys else 0})
+            # a short or stale consolidated history (e.g. subsidiaries merged years ago) -> also look at the other view
+            if len(fys) >= 5 and (max(fys) if fys else 0) >= fresh_fy - 1:
+                break
+        if not cands:
+            return None, last_err
+        best = cands[0]
+        for c in cands[1:]:
+            if c["last"] > best["last"] or (c["last"] == best["last"] and c["n"] > best["n"] + 2):
+                best = c
+        cons, soup, url, tables, rev_lab = best["cons"], best["soup"], best["url"], best["tables"], best["rev_lab"]
+        pl = tables["profit-loss"]
+        if True:
             cid_el = soup.find(attrs={"data-company-id": True})
             company_id = cid_el["data-company-id"] if cid_el else None
             wid_el = soup.find(attrs={"data-warehouse-id": True})
@@ -596,6 +619,7 @@ class ScreenerClient:
                     "market_cap": self.market_cap(soup),
                     # bank / NBFC layouts use 'Revenue' and 'Financing Profit' instead of 'Sales'
                     "is_financial": "Financing Profit" in pl.index or rev_lab == "Revenue"}
+            meta.update(parse_pros_cons(soup))
             if meta["is_financial"]:
                 # NPA ratios are reported on the standalone (regulated) entity; consolidated pages often omit them
                 st_path = (path or f"/company/{symbol}/").replace("consolidated/", "")
@@ -605,7 +629,6 @@ class ScreenerClient:
             peer_list = self.peers(warehouse_id, url) if warehouse_id else []
             return {"fin": fin, "shareholding": shp, "meta": meta, "tables": tables,
                     "sched": sched, "peers": peer_list}, None
-        return None, last_err
 
     @staticmethod
     def _to_frame(tables: dict, sched: dict) -> pd.DataFrame:
@@ -676,6 +699,13 @@ class ScreenerClient:
         if "Reserves" in bs.index:
             fin.loc["retained_earnings"] = bs.loc["Reserves"].reindex(cols)  # proxy
         put("total_debt", bs, "Borrowings", "Borrowing")
+        fin.loc["payables"] = sch("Other Liabilities", "Trade Payables")
+        fin.loc["exceptional"] = sch("Other Income", "Exceptional items")
+        if "EPS in Rs" in pl.index:
+            # Screener's EPS history is restated for bonus issues and splits, so profit ÷ EPS is a
+            # consistent share count (crore). Skip years where EPS is too small to divide reliably.
+            eps = pl.loc["EPS in Rs"].reindex(cols)
+            fin.loc["shares"] = (fin.loc["net_income"] / eps).where(eps.abs() >= 0.5)   # EPS is rounded to 2 dp; below 0.5 the implied count is too noisy
         put("deposits", bs, "Deposits")
         put("total_assets", bs, "Total Assets")
         put("net_ppe", bs, "Fixed Assets")
@@ -708,6 +738,31 @@ class ScreenerClient:
         fin = fin.drop(index=[i for i in fin.index if i.startswith("_")], errors="ignore")
         keep = [c for c in fin.columns if fin.loc[["revenue", "total_assets"], c].notna().sum() >= 1]
         return fin[keep]
+
+
+def parse_pros_cons(soup) -> dict:
+    """Screener's machine-generated pros/cons, plus the few facts the checks use from them."""
+    out = {"pros": [], "cons": []}
+    for key in ("pros", "cons"):
+        el = soup.find(class_=key)
+        if el is not None:
+            out[key] = [" ".join(li.get_text(" ", strip=True).split()) for li in el.find_all("li")]
+    out.update(cons_facts(out["cons"]))
+    return out
+
+
+def cons_facts(cons: list[str]) -> dict:
+    facts = {"contingent_cr": np.nan, "pledge_pct": np.nan, "cap_interest_hint": False}
+    for c in cons or []:
+        m = re.search(r"Contingent liabilities of Rs\.?\s*([\d,]+(?:\.\d+)?)\s*Cr", c, re.I)
+        if m:
+            facts["contingent_cr"] = float(m.group(1).replace(",", ""))
+        m = re.search(r"Promoters have pledged(?: or encumbered)?\s*([\d.]+)%", c, re.I)
+        if m:
+            facts["pledge_pct"] = float(m.group(1))
+        if re.search(r"capitali[sz]ing the interest", c, re.I):
+            facts["cap_interest_hint"] = True
+    return facts
 
 
 def normalise_screener_shareholding(shp: pd.DataFrame | None):

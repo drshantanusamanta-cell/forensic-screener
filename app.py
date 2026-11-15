@@ -19,6 +19,7 @@ import data_sources as ds
 import forensics as fx
 import peers as pr
 import sector as sc
+import timeline as tl
 
 st.set_page_config(page_title="Forensic Red-Flag Screener", page_icon="🔎", layout="wide")
 
@@ -55,6 +56,18 @@ def get_financials(symbol: str):
 @st.cache_data(ttl=12 * 3600, show_spinner=False)
 def get_screener(symbol: str, consolidated: bool, name: str | None = None):
     return ds.ScreenerClient().load(symbol, prefer_consolidated=consolidated, name=name)
+
+
+@st.cache_data(show_spinner=False)
+def load_backtest():
+    import json
+    import os
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backtest_results.json")
+    try:
+        with open(p) as fh:
+            return json.load(fh)
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
@@ -204,7 +217,7 @@ if sh_for_flags is None and sc_shp is not None:
 fin_flags, extras, lend_flags, lend_extras = [], {}, [], {}
 if profile.financial_layer:
     base = fin if fin is not None else pd.DataFrame(index=ds.METRICS, columns=["FY0", "FY1"], dtype=float)
-    fin_flags, extras = fx.financial_flags(base, info, profile, mcap)
+    fin_flags, extras = fx.financial_flags(base, info, profile, mcap, extra=sc_meta)
     if profile.keep_only:   # broker: only the kept accounting tests are shown
         fin_flags = [f for f in fin_flags if f.key in profile.keep_only]
 # Sector-specific module ("lend_flags" holds lender, broker or insurer checks)
@@ -234,7 +247,8 @@ if use_peers and sc_res is not None and sc_res.get("peers") and mode:
     peer_cmp = pr.compare(target_m, peer_raw, mode)
     pr.apply_to_flags(lend_flags + fin_flags, peer_cmp)
 
-own_flags = fx.ownership_flags(sh_for_flags, nse.get("pledges"), nse.get("insider"))
+own_flags = fx.ownership_flags(sh_for_flags, nse.get("pledges"), nse.get("insider"),
+                               pledge_fallback=sc_meta.get("pledge_pct", float("nan")))
 if sh_for_flags is not None:
     own_flags[0].detail += f" Source: {sh_source}."
 ann_eval = nse.get("announcements") is not None or (nse_err.get("announcements") or "").startswith("no announcements")
@@ -312,8 +326,51 @@ def flags_table(flags):
 # --------------------------------------------------------------------------
 # Tabs
 # --------------------------------------------------------------------------
-t1, t2, t6, t3, t4, t5 = st.tabs([special_name or "Financial forensics", "Ownership & pledges",
-                                   "Peers", "Filings", "Data", "Method & limits"])
+t1, t7, t2, t6, t3, t4, t5 = st.tabs([special_name or "Financial forensics", "Timeline", "Ownership & pledges",
+                                       "Peers", "Filings", "Data", "Method & limits"])
+
+with t7:
+    st.markdown("**Red-flag timeline** — the accounting score as it would have read at the end of each past year, "
+                "using only the statements available by then.")
+    tl_fin = sc_res["fin"] if (sc_res is not None and source.startswith("Screener.in ·")) else fin
+    tl_tables = sc_res["tables"] if tl_fin is not None and sc_res is not None and tl_fin is sc_res.get("fin") else None
+    tl_sched = sc_res["sched"] if tl_tables is not None else None
+    tline = tl.build(tl_fin, profile, info, kind, tl_tables, tl_sched, manual) if tl_fin is not None else pd.DataFrame()
+    if tline.empty:
+        st.info("Not enough annual history for a timeline (needs at least three years).")
+    else:
+        fig = go.Figure()
+        for lo, hi, colr in ((0, 20, "rgba(43,138,62,0.10)"), (20, 35, "rgba(250,176,5,0.12)"),
+                             (35, 55, "rgba(232,89,12,0.12)"), (55, 100, "rgba(201,42,42,0.12)")):
+            fig.add_hrect(y0=lo, y1=hi, fillcolor=colr, line_width=0)
+        fig.add_trace(go.Scatter(x=tline.index, y=tline["score"], mode="lines+markers", name="Score",
+                                 line=dict(color="#c92a2a", width=3),
+                                 customdata=tline[["red", "watch"]].values,
+                                 hovertemplate="%{x}: %{y:.0f}<br>%{customdata[0]} red · %{customdata[1]} watch"
+                                               "<extra></extra>"))
+        fig.update_layout(height=340, margin=dict(l=10, r=10, t=10, b=10), yaxis=dict(range=[0, 100], title="Score"),
+                          showlegend=False)
+        st.plotly_chart(fig, width="stretch")
+        latest_live = comp["score"]
+        st.caption("Shaded bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 high. "
+                   "Only statement-based checks are replayed (no pledges, filings, peers or the Screener "
+                   "contingent-liability figure), and Altman uses Z″ throughout, so the last point can differ "
+                   f"from today's headline score ({'—' if pd.isna(latest_live) else f'{latest_live:.0f}'}). "
+                   "Screener shows restated figures, so a year that was later restated is scored on the corrected numbers.")
+        show = tline.drop(columns=["_red_keys"]).rename(columns={
+            "score": "Score", "band": "Band", "red": "Red", "watch": "Watch", "coverage": "Coverage",
+            "red_checks": "Red checks", "watch_checks": "Watch checks"})
+        show["Score"] = show["Score"].round(0)
+        show["Coverage"] = (show["Coverage"] * 100).round(0).astype(int).astype(str) + "%"
+        st.dataframe(show.iloc[::-1], width="stretch")
+        new_red = []
+        for i in range(1, len(tline)):
+            added = set(tline["_red_keys"].iloc[i]) - set(tline["_red_keys"].iloc[i - 1])
+            if added:
+                new_red.append(f"**{tline.index[i]}**: " + ", ".join(sorted(added)))
+        if new_red:
+            with st.expander("When each red flag first appeared"):
+                st.markdown("  \n".join(new_red))
 
 with t1:
     if lender:
@@ -522,14 +579,19 @@ Bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 hi
 - Altman Z″ below 1.1 red, 1.1–2.6 grey; manufacturers use the original Z (below 1.81 red, 1.81–2.99 grey) — distress, not fraud
 - Banks / NBFCs: gross NPA above 6% (bank) / 5% (NBFC) or up >1.5 points in a year red; provision coverage below 50% red;
   loan growth above 40% / 50% a year red; bank loans outgrowing deposits by >15 points red; NBFC borrowings above 8× net worth red
-- Promoter stake down >5 points in a year red; pledges above 30% of promoter shares red
+- Supplier payment days (payables ÷ operating costs): two-year averages, watch if up >20% and >10 days, red if up >40% and >20 days
+- Implied interest rate (interest ÷ average debt, 3 yrs, when debt >5% of assets): below 4.5% watch; below 2.5% with CWIP >25% of net block (or Screener's capitalised-interest note) red
+- Exceptional losses above 10% of pre-tax profit: 2 of 5 years watch, 3+ red (exceptional gains are covered by the other-income check)
+- Share count growth (net profit ÷ EPS, bonus-adjusted): above 5% a year watch, above 10% red
+- Contingent liabilities (from Screener's analysis) above 25% of net worth watch, above 50% red
+- Promoter stake down >5 points in a year red; pledges above 30% of promoter shares red (Screener's pledge figure is used if NSE's is unavailable)
 - Filings: auditor resignation, forensic audit, fraud, search/ED, SEBI orders, defaults, insolvency,
   modified audit opinion or rating downgrade = red; officer resignations, auditor change, preferential
   issues, pledges, tax demands or penalties = watch
 
 **Limits**
 - Yahoo gives about four years of annual data for NSE stocks; the Screener export gives ten.
-- Related-party transactions, contingent liabilities and auditor remarks live in the annual report, which this version does not read.
+- Related-party transactions and auditor remarks live in the annual report, which this version does not read; the contingent-liability figure comes from Screener's summary, which lists it only when large.
 - Keyword matching can both miss and over-match; always open the filing.
 - Models like Beneish were built on US companies and produce false positives, especially for fast growers.
 - Banks and NBFCs get a lighter lender module (Screener doesn't split loans or provisions).
@@ -552,6 +614,35 @@ Bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 hi
                      "Not scored": "; ".join(p.skip) or ("all accounting tests" if not p.financial_layer else "—"),
                      "Why": p.note})
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+    bt = load_backtest()
+    if bt:
+        cur, old = bt["summary"]["current"], bt["summary"].get("without_new_checks", {})
+        st.markdown(f"**Backtest** (run {bt['generated']}): point-in-time scores for {cur['n_fail']} companies that later "
+                    f"hit a regulatory order, default, insolvency or disclosed fraud, versus {len(bt['controls'])} large "
+                    f"clean companies scored every year FY2017–FY2025 ({cur['n_control_years']} company-years).")
+        b1, b2, b3 = st.columns(3)
+        b1.metric("Failures ≥20 at last accounts before the event", f"{cur['hit_t0_20']}/{cur['n_fail']}")
+        b2.metric("Clean company-years ≥20 (false alarms)", f"{cur['fp_20']}/{cur['n_control_years']}",
+                  delta=(f"{cur['fp_20'] - old['fp_20']} vs without new checks" if old else None), delta_color="inverse")
+        b3.metric("Median score: failures vs clean", f"{cur['median_fail_t0']:.0f} vs {cur['median_control']:.0f}")
+        st.caption(f"At the 35 line: {cur['hit_t0_35']}/{cur['n_fail']} failures and {cur['fp_35']} clean company-years. "
+                   "One year earlier (t−1): "
+                   f"{cur['hit_t1_20']}/{cur['n_fail_t1']} failures were already at 20 or more.")
+        fdf = pd.DataFrame(bt["failures"])
+        fdf = fdf.rename(columns={"symbol": "Company", "type": "Rule book", "event": "Event", "t0": "Last accounts",
+                                  "score_t0": "Score", "score_t1": "Year before", "score_t2": "Two years before",
+                                  "red_t0": "Red checks"})
+        fdf["Red checks"] = fdf["Red checks"].apply(lambda x: ", ".join(x))
+        st.dataframe(fdf.round(0), hide_index=True, width="stretch")
+        rr = pd.DataFrame(cur["red_rate"]).T.rename(columns={"fail": "Red in failures", "control": "Red in clean years"})
+        st.dataframe((rr * 100).round(0).astype(int).astype(str) + "%", width="stretch")
+        missed = [f["symbol"] for f in bt["failures"] if f["score_t0"] is not None and f["score_t0"] < 20]
+        st.caption(f"Read this as a sanity check, not proof. {cur['n_fail']} failures is a small sample; Screener shows "
+                   "restated figures (which can flatter detection for companies that later restated); companies "
+                   "missing from Screener drop out; and "
+                   + (f"{', '.join(missed)} scored below 20 — the accounts alone did not give them away. " if missed else "")
+                   + "Re-run with `python backtest.py`.")
 
 st.divider()
 st.caption("For research and education only. Not investment advice and not an allegation of wrongdoing "

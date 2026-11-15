@@ -16,11 +16,12 @@ Screens one NSE-listed company for the accounting, ownership and filing patterns
 - Effective tax rate and cash tax paid vs book tax
 - Dependence on non-operating income
 - Capital work-in-progress build-up, intangibles outgrowing revenue, debt outgrowing revenue
+- Supplier payment days stretching, implied interest rate on debt (capitalised interest), recurring exceptional losses, share-count dilution, contingent liabilities vs net worth
 - Altman Z″ (distress), plus Piotroski F as unscored context
 
 **Ownership & pledges** (NSE, with Screener's quarterly shareholding pattern as fallback)
 - Promoter holding change over about a year
-- Promoter shares pledged
+- Promoter shares pledged (NSE; Screener's figure as fallback)
 - Promoter-group buying, selling and pledge creation in the last 12 months
 
 **Filings & events** (NSE announcements)
@@ -47,11 +48,24 @@ Screens one NSE-listed company for the accounting, ownership and filing patterns
 
 **Sector peers.** Up to 8 companies Screener lists in the same industry are measured the same way as the company. A red or watch flag is downgraded one step when the company is no worse than the typical peer (a sector norm), and a clear core check is raised to watch when the company is worse than 85% of five or more peers. Every adjusted flag shows its original severity.
 
+## Timeline
+
+The Timeline tab re-runs the statement-based checks as of each past fiscal year-end, using only the columns available by then, and plots the score with the year each red flag first appeared.
+
+## Backtest
+
+`python backtest.py [cache_dir]` scores 13 companies that later hit a regulatory order, default, insolvency or disclosed fraud at their last accounts before the event, against 20 large clean companies scored every year FY2017–FY2025. Results go to `backtest_results.json` and show in the Method tab.
+
+Latest run (15 Nov 2026): 9/13 failures scored 20 or more at their last accounts before the event, against 19/176 clean company-years (without the five newest checks: 26). At 35: 4/13 failures, 2 clean company-years. Median score 30 for failures vs 8 for clean years. Small sample, restated figures and survivorship apply; read it as a sanity check.
+
 ## Score
 
 Each check is clear (0), watch (1) or red (2) with a weight. The score is the weighted share of the maximum, counting only checks that had data. **Coverage** shows how much of the model ran. Bands: under 20 low, 20–35 some questions, 35–55 elevated, above 55 high.
 
 ## Files
+
+- `timeline.py` — point-in-time scoring per fiscal year
+- `backtest.py`, `backtest_results.json` — failures-vs-controls backtest
 
 | File | Purpose |
 |---|---|
@@ -87,7 +101,9 @@ To run locally: `pip install -r requirements.txt` then `streamlit run app.py`.
 - Screener's page layout can change; if it does, the app falls back to Yahoo and says so.
 - NSE sometimes blocks requests from cloud servers. When that happens the ownership and filings layers show as not evaluated; retry later or run locally.
 - NSE's pledge endpoint usually returns only the latest quarter, so the pledge trend is often unavailable.
-- Related-party transactions, contingent liabilities and auditor remarks sit in the annual report, which this version does not read.
+- Related-party transactions and auditor remarks sit in the annual report, which this version does not read. The contingent-liability figure comes from Screener's analysis, which mentions it only when large, so the check often shows "not evaluated".
+- The share count is derived as net profit ÷ EPS (bonus-adjusted), so it is skipped in years with EPS below ₹0.5.
+- Screener shows restated figures, so the timeline and backtest score restated years on the corrected numbers.
 - Keyword matching can miss filings and can over-match. Open each filing.
 - Lender checks are approximate: Screener doesn't split loans or provisions, so the loan book comes from its "Other Assets" grouping and provision coverage ignores technical write-offs. Check CRAR, slippages and the restructured book in the bank's own disclosures.
 - If a whole sector shares a problem, peer comparison can make a company look normal; read the original severity on adjusted flags.

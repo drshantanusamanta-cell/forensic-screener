@@ -227,7 +227,8 @@ def piotroski_f(fin: pd.DataFrame):
 # --------------------------------------------------------------------------
 # Financial-statement flags
 # --------------------------------------------------------------------------
-def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: float = np.nan) -> tuple[list[Flag], dict]:
+def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: float = np.nan,
+                    extra: dict | None = None) -> tuple[list[Flag], dict]:
     """Accounting tests. `profile` (sector.Profile) sets thresholds, weights and skips."""
     from sector import DEFAULT_TH
     L = "Financial forensics"
@@ -491,6 +492,113 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
         f.detail = f"Debt growth {_fmt_pct(g_d)} a year vs revenue {_fmt_pct(g_r)}."
     flags.append(f)
 
+    extra = extra or {}
+
+    # F15b payables stretch
+    f = Flag("dpo", L, "Supplier payment days stretching", 1.5,
+             why="Paying suppliers ever later props up operating cash flow without any real improvement — and can hide "
+                 "a liquidity squeeze or supplier-financing arrangements.",
+             benign="Better terms won through scale, supply-chain finance disclosed in the notes, a change in purchase mix.")
+    opex = (rev - ebitda).where(lambda x: x > 0)
+    dpo = _safe_div(_row(fin, "payables"), opex) * 365
+    d = dpo[win].dropna()
+    if len(d) >= 4 and d.iloc[:2].mean() > 0:
+        start, end = d.iloc[:2].mean(), d.iloc[-2:].mean()   # two-year averages damp one-off swings
+        chg_abs, chg_rel = end - start, (end - start) / start
+        t = TH["dpo"]
+        f.severity = (RED if (chg_rel > t["red_rel"] and chg_abs > t["red_abs"]) else
+                      AMBER if (chg_rel > t["amber_rel"] and chg_abs > t["amber_abs"]) else GREEN)
+        f.value = f"{start:.0f} → {end:.0f} days"
+        f.detail = (f"Trade payables ÷ operating costs (revenue − EBITDA) × 365; average of {d.index[0]}–{d.index[1]} "
+                    f"vs {d.index[-2]}–{d.index[-1]}. Watch if up >{t['amber_rel']:.0%} and >{t['amber_abs']} days; "
+                    f"red if up >{t['red_rel']:.0%} and >{t['red_abs']} days.")
+        if f.severity and pd.notna(cfo.get(last)) and pd.notna(ni.get(last)) and cfo[last] > ni[last]:
+            f.detail += " Operating cash flow currently exceeds profit, so part of it may be supplier credit."
+        f.series = dpo
+    flags.append(f)
+
+    # F15c implied interest rate
+    f = Flag("interest_rate", L, "Implied interest rate on debt (3-yr)", 1,
+             why="An interest charge far below market rates suggests interest is being capitalised into assets "
+                 "(keeping it off the profit and loss account) or that the reported debt is understated.",
+             benign="Foreign-currency or subsidised loans, debt raised just before year-end, genuine construction "
+                    "borrowing capitalised under Ind AS 23.")
+    intx = _row(fin, "interest_expense")
+    avg_debt = _avg(debt)
+    k3 = cols[-3:]
+    if pd.notna(debt.get(last)) and pd.notna(ta.get(last)) and ta[last] > 0 and debt[last] / ta[last] > 0.05 \
+            and intx[k3].notna().sum() >= 2 and avg_debt[k3].sum() > 0:
+        rate = intx[k3].sum() / avg_debt[k3].sum()
+        t = TH["int_rate"]
+        cw_share = _safe_div(_row(fin, "cwip").get(last), _row(fin, "net_ppe").get(last))
+        build = (pd.notna(cw_share) and cw_share > 0.25) or bool(extra.get("cap_interest_hint"))
+        f.severity = RED if (rate < t["red"] and build) else AMBER if rate < t["amber"] else GREEN
+        f.value = _fmt_pct(rate, 1)
+        f.detail = (f"Interest expense ÷ average total debt over {len(k3)} yrs; Indian corporate borrowing is "
+                    f"typically 7–11%. Below {t['amber']:.1%} watch; below {t['red']:.1%} with large CWIP red.")
+        if extra.get("cap_interest_hint"):
+            f.detail += " Screener's own analysis also notes the company may be capitalising interest."
+        f.series = _safe_div(intx, avg_debt)
+    flags.append(f)
+
+    # F15d recurring exceptional losses
+    f = Flag("exceptional", L, "Recurring 'exceptional' losses (5-yr)", 1.5,
+             why="Charges that are exceptional every year are not exceptional: pushing ordinary costs into "
+                 "'one-off' write-downs keeps them out of the profit investors focus on (the 'big bath').",
+             benign="A genuine multi-year restructuring or clean-up after an acquisition. Exceptional gains are "
+                    "covered by the non-operating-income check, so they are not counted here.")
+    exc, pbt5 = _row(fin, "exceptional")[win], _row(fin, "pbt")[win]
+    if exc.notna().sum() >= 3:
+        t = TH["exceptional"]
+        big = exc[(exc < 0) & (exc.abs() > t["share"] * pbt5.abs().clip(lower=1))]
+        n = len(big)
+        f.severity = RED if n >= t["red"] else AMBER if n >= t["amber"] else GREEN
+        f.value = f"{n}/{exc.notna().sum()} yrs material"
+        f.detail = (f"Years where exceptional losses exceed {t['share']:.0%} of profit before tax: "
+                    f"{t['amber']}+ watch, {t['red']}+ red.")
+        if n:
+            f.detail += f" Total ₹{big.sum():,.0f} Cr in those years."
+        f.series = exc
+    flags.append(f)
+
+    # F15e share dilution
+    f = Flag("dilution", L, "Share count growth (dilution)", 1,
+             why="Steady issuance means shareholders fund the business; repeated preferential allotments and warrants "
+                 "to promoters or friendly investors were a feature of several manipulated small caps.",
+             benign="Mergers, QIPs to fund expansion, ESOPs, conversion of debt. Bonus issues and splits are already "
+                    "adjusted out.")
+    sh = _row(fin, "shares")[win].dropna()
+    if len(sh) >= 3:
+        g = _cagr(sh)
+        t = TH["dilution"]
+        if pd.notna(g):
+            f.severity = RED if g > t["red"] else AMBER if g > t["amber"] else GREEN
+            f.value = f"{_fmt_pct(g, 1)} a year"
+            f.detail = (f"Share count implied by net profit ÷ EPS, {sh.index[0]} to {sh.index[-1]}. "
+                        f"Above {t['amber']:.0%} a year watch, above {t['red']:.0%} red.")
+            f.series = _row(fin, "shares")
+    flags.append(f)
+
+    # F15f contingent liabilities
+    f = Flag("contingent", L, "Contingent liabilities vs net worth", 1.5,
+             why="Large off-balance-sheet claims — guarantees for group companies, disputed tax, litigation — can wipe "
+                 "out equity if they crystallise, and guarantees to related parties are a common leakage route.",
+             benign="Routine bank guarantees and disputed tax demands that companies usually win on appeal.")
+    cl_cr = extra.get("contingent_cr", np.nan)
+    eq_last = _row(fin, "equity").get(last)
+    if pd.notna(cl_cr) and pd.notna(eq_last) and eq_last > 0:
+        r = cl_cr / eq_last
+        t = TH["contingent"]
+        f.severity = RED if r > t["red"] else AMBER if r > t["amber"] else GREEN
+        f.value = f"{_fmt_pct(r)} of net worth"
+        f.detail = (f"Contingent liabilities ₹{cl_cr:,.0f} Cr (Screener's summary of the latest annual report) vs "
+                    f"net worth ₹{eq_last:,.0f} Cr. Above {t['amber']:.0%} watch, above {t['red']:.0%} red. "
+                    "Read the note for what they are.")
+    else:
+        f.detail = ("Not evaluated: the figure comes from Screener's analysis, which lists contingent liabilities only "
+                    "when it considers them large. Check the annual report note.")
+    flags.append(f)
+
     # F16 Altman Z'' (distress, not fraud)
     f = Flag("altman", L, "Altman Z″ (financial distress)", 1.5,
              why="Distress gives management a motive to dress up the numbers.",
@@ -543,7 +651,7 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
 # Ownership / governance flags
 # --------------------------------------------------------------------------
 def ownership_flags(sh: pd.DataFrame | None, pl: pd.DataFrame | None,
-                    ins: pd.DataFrame | None) -> list[Flag]:
+                    ins: pd.DataFrame | None, pledge_fallback: float = np.nan) -> list[Flag]:
     L = "Ownership & pledges"
     flags = []
 
@@ -572,6 +680,12 @@ def ownership_flags(sh: pd.DataFrame | None, pl: pd.DataFrame | None,
         f.value = f"{now:.1f}% of promoter holding"
         hist = f"A year earlier: {then:.1f}%." if pd.notna(then) else "NSE returned only the latest quarter, so the trend isn't checked."
         f.detail = f"As of {pl['date'].iloc[-1]:%b %Y}. {hist} Above 30% red; above 10% or rising >5 points watch."
+    elif pd.notna(pledge_fallback):
+        now = pledge_fallback
+        f.severity = RED if now > 30 else AMBER if now > 10 else GREEN
+        f.value = f"{now:.1f}% of promoter holding"
+        f.detail = ("From Screener's analysis (NSE pledge data unavailable). Screener mentions pledges only when "
+                    "they are material, so the trend isn't checked. Above 30% red; above 10% watch.")
     flags.append(f)
 
     f = Flag("insider", L, "Promoter-group trading (12 months)", 1.5,

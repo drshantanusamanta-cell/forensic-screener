@@ -23,6 +23,11 @@ DEFAULT_TH = {
     "cwip": {"amber": 0.50, "red": 1.00},
     "debt": {"amber": 1.0, "red": 2.0},
     "altman": {"model": "z2"},
+    "dpo": {"amber_rel": 0.20, "amber_abs": 10, "red_rel": 0.40, "red_abs": 20},
+    "int_rate": {"amber": 0.045, "red": 0.025},
+    "exceptional": {"share": 0.10, "amber": 2, "red": 3},
+    "dilution": {"amber": 0.05, "red": 0.10},
+    "contingent": {"amber": 0.25, "red": 0.50},
 }
 
 
@@ -88,14 +93,14 @@ PROFILES = {
             "dso": {"amber_rel": 0.25, "amber_abs": 20, "red_rel": 0.50, "red_abs": 40},
             "dio": {"amber_rel": 0.30, "amber_abs": 60, "red_rel": 0.60, "red_abs": 120},
             "debt": {"amber": 1.5, "red": 3.0}},
-        weights={"fcf": 1, "cwip": 0.5}),
+        weights={"fcf": 1, "cwip": 0.5, "interest_rate": 0.5}),
     "utilities": _p(
         "utilities", "Power / telecom / infrastructure operator",
         "Regulated, capital-heavy businesses: high debt and multi-year CWIP are normal, free cash flow is often "
         "negative during build-out. Debt and CWIP thresholds are higher.",
         th={"cwip": {"amber": 0.60, "red": 1.20}, "debt": {"amber": 2.0, "red": 3.5},
             "cash_debt": {"amber": 0.20, "red": 0.30}},
-        weights={"fcf": 0.5, "altman": 1, "cwip": 1.5}),
+        weights={"fcf": 0.5, "altman": 1, "cwip": 1.5, "interest_rate": 0.5}),
     "pharma": _p(
         "pharma", "Pharmaceuticals / biotech",
         "Capitalised R&D and acquired intangibles deserve more weight; receivables (distributor stuffing, "
@@ -115,7 +120,8 @@ PROFILES = {
               "altman": "not meaningful for holding companies", "dio": "no operating inventory",
               "tax": "associates' profits are booked after their own tax",
               "cfo_ni": "equity-accounted profits are non-cash",
-              "sloan": "equity-accounted profits inflate accruals mechanically"}),
+              "sloan": "equity-accounted profits inflate accruals mechanically",
+              "dpo": "no meaningful trade-payables cycle"}),
     "broker": _p(
         "broker", "Stockbroker",
         "Client money, exchange margins and margin-trading loans run through the balance sheet and cash flow, so "
@@ -131,7 +137,7 @@ PROFILES = {
         th={"other_income": {"amber": 0.35, "red": 0.60}},
         skip={k: "clearing-member money distorts it for exchanges"
               for k in ("cfo_ebitda", "cfo_ni", "fcf", "sloan", "beneish", "montier", "cash_yield", "cash_debt",
-                        "altman", "dio")}),
+                        "altman", "dio", "dpo")}),
     "amc_rta": _p(
         "amc_rta", "AMC / registrar / depository / ratings",
         "Asset-light fee businesses with no client money on the balance sheet: cash conversion should be high. "
@@ -141,7 +147,8 @@ PROFILES = {
         weights={"dso": 2.5},
         skip={"dio": "no inventory", "cwip": "not material", "cash_yield": "surplus sits in investments, not cash",
               "altman": "not meaningful for asset-light fee businesses",
-              "sloan": "investing surplus cash inflates the cash-flow accrual ratio mechanically"}),
+              "sloan": "investing surplus cash inflates the cash-flow accrual ratio mechanically",
+              "dpo": "no meaningful trade-payables cycle"}),
     "bank": _p(
         "bank", "Bank",
         "Lending balance sheet: industrial accounting tests are switched off and replaced by asset-quality, "

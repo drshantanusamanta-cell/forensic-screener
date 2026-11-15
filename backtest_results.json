@@ -1,0 +1,440 @@
+{
+ "generated": "15 Nov 2026",
+ "failures": [
+  {
+   "symbol": "VAKRANGEE",
+   "type": "it_services",
+   "event": "Price collapse and auditor resignation, 2018",
+   "t0": "FY2017",
+   "score_t0": 22.580645161290324,
+   "score_t1": NaN,
+   "score_t2": NaN,
+   "red_t0": [
+    "cfo_ebitda",
+    "cash_yield"
+   ]
+  },
+  {
+   "symbol": "PCJEWELLER",
+   "type": "retail",
+   "event": "Price collapse 2018, loan defaults 2019\u201320",
+   "t0": "FY2018",
+   "score_t0": 18.939393939393938,
+   "score_t1": 19.841269841269842,
+   "score_t2": NaN,
+   "red_t0": [
+    "dso",
+    "montier"
+   ]
+  },
+  {
+   "symbol": "COFFEEDAY",
+   "type": "services",
+   "event": "Founder's death and fund-diversion disclosure, Jul 2019",
+   "t0": "FY2018",
+   "score_t0": 12.5,
+   "score_t1": 20.491803278688526,
+   "score_t2": NaN,
+   "red_t0": [
+    "other_income",
+    "dilution"
+   ]
+  },
+  {
+   "symbol": "BCG",
+   "type": "it_services",
+   "event": "SEBI interim order on fabricated revenue, Aug 2023",
+   "t0": "FY2023",
+   "score_t0": 47.5,
+   "score_t1": 37.5,
+   "score_t2": 21.666666666666668,
+   "red_t0": [
+    "cfo_ebitda",
+    "beneish",
+    "cash_yield",
+    "dilution"
+   ]
+  },
+  {
+   "symbol": "GENSOL",
+   "type": "manufacturer",
+   "event": "SEBI order on fund diversion, Apr 2025",
+   "t0": "FY2024",
+   "score_t0": 46.82539682539682,
+   "score_t1": 43.65079365079365,
+   "score_t2": 42.06349206349206,
+   "red_t0": [
+    "cfo_ebitda",
+    "cfo_ni",
+    "beneish",
+    "sloan",
+    "debt"
+   ]
+  },
+  {
+   "symbol": "MANPASAND",
+   "type": "manufacturer",
+   "event": "Auditor resignation and GST-fraud arrests, 2019",
+   "t0": "FY2018",
+   "score_t0": 47.2972972972973,
+   "score_t1": 34.285714285714285,
+   "score_t2": 42.857142857142854,
+   "red_t0": [
+    "fcf",
+    "beneish",
+    "dilution"
+   ]
+  },
+  {
+   "symbol": "SINTEX",
+   "type": "manufacturer",
+   "event": "Loan defaults 2019, insolvency 2021",
+   "t0": "FY2018",
+   "score_t0": 33.333333333333336,
+   "score_t1": 34.09090909090909,
+   "score_t2": 43.18181818181818,
+   "red_t0": [
+    "fcf",
+    "dio",
+    "tax",
+    "other_income",
+    "interest_rate",
+    "dilution"
+   ]
+  },
+  {
+   "symbol": "JETAIRWAYS",
+   "type": "services",
+   "event": "Grounded Apr 2019, insolvency",
+   "t0": "FY2018",
+   "score_t0": 18.103448275862068,
+   "score_t1": 27.586206896551722,
+   "score_t2": 10.576923076923077,
+   "red_t0": [
+    "tax",
+    "other_income",
+    "altman"
+   ]
+  },
+  {
+   "symbol": "RCOM",
+   "type": "utilities",
+   "event": "Debt default 2017\u201318, insolvency 2019",
+   "t0": "FY2017",
+   "score_t0": 27.0,
+   "score_t1": NaN,
+   "score_t2": NaN,
+   "red_t0": [
+    "dso",
+    "beneish",
+    "altman"
+   ]
+  },
+  {
+   "symbol": "GITANJALI",
+   "type": "retail",
+   "event": "PNB fraud disclosure, Feb 2018",
+   "t0": "FY2017",
+   "score_t0": 50.892857142857146,
+   "score_t1": 42.42424242424242,
+   "score_t2": 37.878787878787875,
+   "red_t0": [
+    "cfo_ebitda",
+    "cfo_ni",
+    "dso",
+    "dio",
+    "tax",
+    "other_income",
+    "dpo"
+   ]
+  },
+  {
+   "symbol": "ZEEL",
+   "type": "it_services",
+   "event": "Promoter pledge crisis Jan 2019; SEBI diversion order 2023",
+   "t0": "FY2018",
+   "score_t0": 30.0,
+   "score_t1": 22.580645161290324,
+   "score_t2": NaN,
+   "red_t0": [
+    "cfo_ebitda",
+    "cfo_ni",
+    "dpo"
+   ]
+  },
+  {
+   "symbol": "CGPOWER",
+   "type": "manufacturer",
+   "event": "Irregularities by prior management disclosed, Aug 2019",
+   "t0": "FY2018",
+   "score_t0": 18.75,
+   "score_t1": 17.647058823529413,
+   "score_t2": NaN,
+   "red_t0": [
+    "cfo_ebitda",
+    "exceptional"
+   ]
+  },
+  {
+   "symbol": "KWALITY",
+   "type": "manufacturer",
+   "event": "Loan default Oct 2018, bank-fraud probe, insolvency",
+   "t0": "FY2018",
+   "score_t0": 30.303030303030305,
+   "score_t1": 24.242424242424242,
+   "score_t2": 32.57575757575758,
+   "red_t0": [
+    "cfo_ebitda",
+    "fcf",
+    "beneish",
+    "montier"
+   ]
+  }
+ ],
+ "controls": [
+  {
+   "symbol": "HINDUNILVR",
+   "type": "manufacturer",
+   "median": 4.6875,
+   "max": 13.28125,
+   "years": 9
+  },
+  {
+   "symbol": "ASIANPAINT",
+   "type": "manufacturer",
+   "median": 14.393939393939394,
+   "max": 24.242424242424242,
+   "years": 9
+  },
+  {
+   "symbol": "NESTLEIND",
+   "type": "manufacturer",
+   "median": 0.0,
+   "max": 21.428571428571427,
+   "years": 7
+  },
+  {
+   "symbol": "PIDILITIND",
+   "type": "manufacturer",
+   "median": 8.19672131147541,
+   "max": 20.3125,
+   "years": 9
+  },
+  {
+   "symbol": "TCS",
+   "type": "it_services",
+   "median": 4.761904761904762,
+   "max": 11.538461538461538,
+   "years": 9
+  },
+  {
+   "symbol": "INFY",
+   "type": "it_services",
+   "median": 4.761904761904762,
+   "max": 16.666666666666668,
+   "years": 9
+  },
+  {
+   "symbol": "MARUTI",
+   "type": "manufacturer",
+   "median": 7.03125,
+   "max": 15.625,
+   "years": 9
+  },
+  {
+   "symbol": "BAJAJ-AUTO",
+   "type": "manufacturer",
+   "median": 15.573770491803279,
+   "max": 35.9375,
+   "years": 9
+  },
+  {
+   "symbol": "ITC",
+   "type": "manufacturer",
+   "median": 2.34375,
+   "max": 17.96875,
+   "years": 9
+  },
+  {
+   "symbol": "DMART",
+   "type": "retail",
+   "median": 15.625,
+   "max": 35.714285714285715,
+   "years": 9
+  },
+  {
+   "symbol": "TITAN",
+   "type": "retail",
+   "median": 16.666666666666668,
+   "max": 22.727272727272727,
+   "years": 9
+  },
+  {
+   "symbol": "LT",
+   "type": "epc_realty",
+   "median": 15.873015873015873,
+   "max": 26.984126984126984,
+   "years": 9
+  },
+  {
+   "symbol": "HCLTECH",
+   "type": "it_services",
+   "median": 9.615384615384615,
+   "max": 11.538461538461538,
+   "years": 8
+  },
+  {
+   "symbol": "DABUR",
+   "type": "manufacturer",
+   "median": 6.818181818181818,
+   "max": 9.090909090909092,
+   "years": 9
+  },
+  {
+   "symbol": "BRITANNIA",
+   "type": "manufacturer",
+   "median": 11.363636363636363,
+   "max": 20.491803278688526,
+   "years": 9
+  },
+  {
+   "symbol": "ULTRACEMCO",
+   "type": "epc_realty",
+   "median": 4.761904761904762,
+   "max": 18.253968253968253,
+   "years": 9
+  },
+  {
+   "symbol": "HAVELLS",
+   "type": "manufacturer",
+   "median": 13.28125,
+   "max": 25.0,
+   "years": 9
+  },
+  {
+   "symbol": "EICHERMOT",
+   "type": "manufacturer",
+   "median": 12.5,
+   "max": 24.21875,
+   "years": 8
+  },
+  {
+   "symbol": "COLPAL",
+   "type": "manufacturer",
+   "median": 0.0,
+   "max": 7.894736842105263,
+   "years": 9
+  },
+  {
+   "symbol": "MARICO",
+   "type": "manufacturer",
+   "median": 11.363636363636363,
+   "max": 23.484848484848484,
+   "years": 9
+  }
+ ],
+ "summary": {
+  "current": {
+   "n_fail": 13,
+   "n_fail_t1": 11,
+   "n_control_years": 176,
+   "median_fail_t0": 30.0,
+   "median_fail_t1": 27.586206896551722,
+   "median_control": 7.853618421052632,
+   "hit_t0_20": 9,
+   "hit_t1_20": 9,
+   "fp_20": 19,
+   "hit_t0_35": 4,
+   "hit_t1_35": 3,
+   "fp_35": 2,
+   "red_rate": {
+    "cfo_ebitda": {
+     "fail": 0.5384615384615384,
+     "control": 0.045454545454545456
+    },
+    "beneish": {
+     "fail": 0.38461538461538464,
+     "control": 0.13636363636363635
+    },
+    "other_income": {
+     "fail": 0.3076923076923077,
+     "control": 0.0
+    },
+    "dilution": {
+     "fail": 0.3076923076923077,
+     "control": 0.0
+    },
+    "tax": {
+     "fail": 0.23076923076923078,
+     "control": 0.0
+    },
+    "dso": {
+     "fail": 0.23076923076923078,
+     "control": 0.03409090909090909
+    },
+    "cfo_ni": {
+     "fail": 0.23076923076923078,
+     "control": 0.022727272727272728
+    },
+    "fcf": {
+     "fail": 0.23076923076923078,
+     "control": 0.011363636363636364
+    },
+    "montier": {
+     "fail": 0.15384615384615385,
+     "control": 0.07954545454545454
+    },
+    "cash_yield": {
+     "fail": 0.15384615384615385,
+     "control": 0.0
+    },
+    "altman": {
+     "fail": 0.15384615384615385,
+     "control": 0.0
+    },
+    "dio": {
+     "fail": 0.15384615384615385,
+     "control": 0.045454545454545456
+    },
+    "dpo": {
+     "fail": 0.15384615384615385,
+     "control": 0.028409090909090908
+    },
+    "exceptional": {
+     "fail": 0.07692307692307693,
+     "control": 0.0
+    },
+    "debt": {
+     "fail": 0.07692307692307693,
+     "control": 0.0
+    },
+    "sloan": {
+     "fail": 0.07692307692307693,
+     "control": 0.011363636363636364
+    },
+    "interest_rate": {
+     "fail": 0.07692307692307693,
+     "control": 0.0
+    },
+    "cash_debt": {
+     "fail": 0.0,
+     "control": 0.005681818181818182
+    }
+   }
+  },
+  "without_new_checks": {
+   "n_fail": 13,
+   "n_fail_t1": 11,
+   "n_control_years": 176,
+   "median_fail_t0": 30.0,
+   "median_fail_t1": 29.464285714285715,
+   "median_control": 8.257575757575758,
+   "hit_t0_20": 9,
+   "hit_t1_20": 9,
+   "fp_20": 26,
+   "hit_t0_35": 5,
+   "hit_t1_35": 3,
+   "fp_35": 2
+  }
+ }
+}
