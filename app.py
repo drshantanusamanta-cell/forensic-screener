@@ -21,6 +21,12 @@ import peers as pr
 import sector as sc
 import timeline as tl
 
+# Streamlit Cloud re-runs app.py after a redeploy but can keep the old helper modules in memory,
+# which breaks calls that changed signature. Reload them so they always match app.py.
+import importlib as _il
+for _m in (sc, ds, fx, pr, tl):
+    _il.reload(_m)
+
 st.set_page_config(page_title="Forensic Red-Flag Screener", page_icon="🔎", layout="wide")
 
 SEV_BADGE = {None: "⚪ Not evaluated", 0: "🟢 Clear", 1: "🟠 Watch", 2: "🔴 Red flag"}
