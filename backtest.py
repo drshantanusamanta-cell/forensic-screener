@@ -43,10 +43,17 @@ FAIL = {"VAKRANGEE": (2017, "Price collapse and auditor resignation, 2018"),
         "GITANJALI": (2017, "PNB fraud disclosure, Feb 2018"),
         "ZEEL": (2018, "Promoter pledge crisis Jan 2019; SEBI diversion order 2023"),
         "CGPOWER": (2018, "Irregularities by prior management disclosed, Aug 2019"),
-        "KWALITY": (2018, "Loan default Oct 2018, bank-fraud probe, insolvency")}
+        "KWALITY": (2018, "Loan default Oct 2018, bank-fraud probe, insolvency"),
+        "RPOWER": (2018, "Fell ~97% 2018–20; loan defaults 2019–20"),
+        "FRETAIL": (2019, "Pledge invocations 2020, defaults 2021, insolvency 2022"),
+        "YESBANK": (2018, "RBI cut CEO's term Sep 2018; RBI moratorium Mar 2020"),
+        "SAMMAANCAP": (2018, "Indiabulls Housing: fell >90% in the 2018–20 NBFC funding crisis")}
 CTRL = ["HINDUNILVR", "ASIANPAINT", "NESTLEIND", "PIDILITIND", "TCS", "INFY", "MARUTI", "BAJAJ-AUTO", "ITC",
         "DMART", "TITAN", "LT", "HCLTECH", "DABUR", "BRITANNIA", "ULTRACEMCO", "HAVELLS", "EICHERMOT", "COLPAL",
         "MARICO"]
+# healthy companies that carry a lot of debt: the false-alarm test for the stress score
+LEV = ["NTPC", "POWERGRID", "TATAPOWER", "JSWSTEEL", "TATASTEEL", "BHARTIARTL", "INDIGO", "DLF", "APOLLOHOSP",
+       "ADANIPORTS", "GMRAIRPORT", "IRB", "HINDALCO", "LT"]
 CTRL_YEARS = range(2017, 2026)
 NEW_CHECKS = {"dpo", "interest_rate", "exceptional", "dilution", "contingent"}
 
@@ -54,11 +61,11 @@ NEW_CHECKS = {"dpo", "interest_rate", "exceptional", "dilution", "contingent"}
 def fetch(cache):
     os.makedirs(cache, exist_ok=True)
     c = ds.ScreenerClient()
-    for sym in list(FAIL) + CTRL:
+    for sym in list(FAIL) + CTRL + [f"L_{x}" for x in LEV]:
         f = os.path.join(cache, f"{sym}.pkl")
         if os.path.exists(f):
             continue
-        res, err = c.load(sym)
+        res, err = c.load(sym.removeprefix("L_"))
         if res is None:
             print(f"{sym}: {err}")
             continue
@@ -79,13 +86,14 @@ def score_rows(res, drop=()):
             if f.key in drop:
                 f.severity = None
         from forensics import composite, RED
-        rows[fy] = (composite(flags)["score"], [f.key for f in flags if f.severity == RED])
+        rows[fy] = (composite(flags)["score"], [f.key for f in flags if f.severity == RED],
+                    tl.stress_at(fy, res["fin"], prof) if not drop else np.nan)
     return kind, rows
 
 
 def run(cache):
     data = {s: pickle.load(open(os.path.join(cache, f"{s}.pkl"), "rb"))
-            for s in list(FAIL) + CTRL if os.path.exists(os.path.join(cache, f"{s}.pkl"))}
+            for s in list(FAIL) + CTRL + [f"L_{x}" for x in LEV] if os.path.exists(os.path.join(cache, f"{s}.pkl"))}
     for r in data.values():   # rebuild the frame so cached pages pick up parser changes
         r["fin"] = ds.ScreenerClient._to_frame(r["tables"], r["sched"])
     out = {"generated": pd.Timestamp.now().strftime("%d %b %Y"), "failures": [], "controls": [], "summary": {}}
@@ -95,7 +103,8 @@ def run(cache):
             if sym not in data:
                 continue
             kind, rows = score_rows(data[sym], drop)
-            s0, s1, s2 = (rows.get(y, (np.nan, []))[0] for y in (fy, fy - 1, fy - 2))
+            s0, s1, s2 = (rows.get(y, (np.nan, [], np.nan))[0] for y in (fy, fy - 1, fy - 2))
+            st0 = rows.get(fy, (np.nan, [], np.nan))[2]
             if pd.notna(s0):
                 f_t0.append(s0)
                 red_f.update(rows[fy][1])
@@ -104,7 +113,7 @@ def run(cache):
             if variant == "current":
                 out["failures"].append({"symbol": sym, "type": kind, "event": ev, "t0": f"FY{fy}",
                                         "score_t0": s0, "score_t1": s1, "score_t2": s2,
-                                        "red_t0": rows.get(fy, (0, []))[1]})
+                                        "red_t0": rows.get(fy, (0, [], 0))[1], "stress_t0": st0})
         for sym in CTRL:
             if sym not in data:
                 continue
@@ -117,6 +126,32 @@ def run(cache):
             if variant == "current":
                 out["controls"].append({"symbol": sym, "type": kind, "median": float(np.median(s)),
                                         "max": float(np.max(s)), "years": len(s)})
+        if variant == "current":
+            lev_s, lev_r = [], []
+            for sym in LEV:
+                if f"L_{sym}" not in data:
+                    continue
+                kind, rows = score_rows(data[f"L_{sym}"])
+                for y in CTRL_YEARS:
+                    if y in rows:
+                        lev_r.append(rows[y][0])
+                        if pd.notna(rows[y][2]):
+                            lev_s.append(rows[y][2])
+            ctrl_s = []
+            for sym in CTRL:
+                if sym in data:
+                    _, rows = score_rows(data[sym])
+                    ctrl_s += [rows[y][2] for y in CTRL_YEARS if y in rows and pd.notna(rows[y][2])]
+            fs = np.array([f["stress_t0"] for f in out["failures"] if pd.notna(f["stress_t0"])])
+            ls, cs, lr = np.array(lev_s), np.array(ctrl_s), np.array(lev_r)
+            out["stress"] = {"n_fail": len(fs), "n_lev": len(ls), "n_ctrl": len(cs),
+                             "median_fail": float(np.median(fs)), "median_lev": float(np.median(ls)),
+                             "median_ctrl": float(np.median(cs)),
+                             **{f"fail_{t}": int((fs >= t).sum()) for t in (25, 50)},
+                             **{f"lev_{t}": int((ls >= t).sum()) for t in (25, 50)},
+                             **{f"ctrl_{t}": int((cs >= t).sum()) for t in (25, 50)},
+                             "lev_redflag_20": int((lr >= 20).sum()), "lev_redflag_n": len(lr),
+                             "lev_redflag_35": int((lr >= 35).sum())}
         f0, f1, ca = np.array(f_t0), np.array(f_t1), np.array(c_all)
         summ = {"n_fail": len(f0), "n_fail_t1": len(f1), "n_control_years": len(ca),
                 "median_fail_t0": float(np.median(f0)), "median_fail_t1": float(np.median(f1)),
@@ -129,7 +164,15 @@ def run(cache):
             summ["red_rate"] = {k: {"fail": red_f[k] / len(f0), "control": red_c[k] / len(ca)}
                                 for k in sorted(set(red_f) | set(red_c), key=lambda k: -red_f[k])}
         out["summary"][variant] = summ
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "backtest_results.json"), "w") as fh:
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backtest_results.json")
+    try:   # keep the hand-recorded baseline from the previous version, if present
+        out["summary"]["previous_version"] = json.load(open(path))["summary"]["previous_version"]
+    except Exception:
+        pass
+    fl = [f for f in out["failures"] if f["score_t0"] is not None]
+    out["stress"]["either_flagged"] = sum(1 for f in fl if f["score_t0"] >= 20 or
+                                          (pd.notna(f["stress_t0"]) and f["stress_t0"] >= 50))
+    with open(path, "w") as fh:
         json.dump(out, fh, indent=1, default=lambda x: None if isinstance(x, float) and np.isnan(x) else x)
     return out
 

@@ -329,7 +329,7 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
     flags.append(f)
 
     # F6 Beneish
-    f = Flag("beneish", L, "Beneish M-Score (latest year)", 3,
+    f = Flag("beneish", L, "Beneish M-Score (latest year)", 2,
              why="Statistical model built on companies later caught manipulating earnings.",
              benign="High sales growth alone pushes the score up; it also produces meaningful false positives.")
     bm = beneish(fin)
@@ -363,7 +363,7 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
     flags.append(f)
 
     # F8 Montier C
-    f = Flag("montier", L, "Montier C-Score (persistence over 3 yrs)", 1.5,
+    f = Flag("montier", L, "Montier C-Score (persistence over 3 yrs)", 1,
              why="Counts six classic 'cooking the books' symptoms; 4 or more is a warning.",
              benign="Each test can trip during normal expansion; read it alongside the cash-flow checks.")
     mc = montier_c(fin)
@@ -416,7 +416,7 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
     flags.append(f)
 
     # F11 effective tax rate
-    f = Flag("tax", L, "Tax charge vs reported profit (3-yr)", 1.5,
+    f = Flag("tax", L, "Tax charge vs reported profit (3-yr)", 2,
              why="Profits the tax authorities never see are a classic sign that book profits are not real.",
              benign="SEZ or other exemptions, carried-forward losses, MAT credits, large exempt income.")
     pbt, tax = _row(fin, "pbt")[cols[-3:]], _row(fin, "tax")[cols[-3:]]
@@ -435,7 +435,7 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
     flags.append(f)
 
     # F12 non-operating income dependence
-    f = Flag("other_income", L, "Profit dependence on non-operating income (3-yr)", 1.5,
+    f = Flag("other_income", L, "Profit dependence on non-operating income (3-yr)", 2,
              why="When 'other income' carries the profit line, the core business may be weaker than it looks.",
              benign="Genuine treasury income for cash-rich companies, or holding-company structures.")
     oi = _row(fin, "other_income")[cols[-3:]]
@@ -565,7 +565,7 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
     flags.append(f)
 
     # F15e share dilution
-    f = Flag("dilution", L, "Share count growth (dilution)", 1,
+    f = Flag("dilution", L, "Share count growth (dilution)", 1.5,
              why="Steady issuance means shareholders fund the business; repeated preferential allotments and warrants "
                  "to promoters or friendly investors were a feature of several manipulated small caps.",
              benign="Mergers, QIPs to fund expansion, ESOPs, conversion of debt. Bonus issues and splits are already "
@@ -602,25 +602,6 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
                     "when it considers them large. Check the annual report note.")
     flags.append(f)
 
-    # F16 Altman Z'' (distress, not fraud)
-    f = Flag("altman", L, "Altman Z″ (financial distress)", 1.5,
-             why="Distress gives management a motive to dress up the numbers.",
-             benign="Asset-light or high-growth firms can score low without being in trouble.")
-    z = altman_z2(fin)
-    extras["altman"] = z
-    zo = altman_original(fin, market_cap) if TH["altman"]["model"] == "z_orig" else np.nan
-    if pd.notna(zo):
-        f.title = "Altman Z (manufacturing, financial distress)"
-        f.severity = RED if zo < 1.81 else AMBER if zo < 2.99 else GREEN
-        f.value = _fmt(zo)
-        f.detail = "Original Z with today's market value of equity: below 1.81 distress, 1.81–2.99 grey zone."
-    elif pd.notna(z.get(last)):
-        f.severity = RED if z[last] < 1.1 else AMBER if z[last] < 2.6 else GREEN
-        f.value = _fmt(z[last])
-        f.detail = "Z″ form for non-manufacturers: below 1.1 distress, 1.1–2.6 grey zone."
-        f.series = z
-    flags.append(f)
-
     extras["piotroski"] = piotroski_f(fin)
 
     if profile is not None:
@@ -648,6 +629,108 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
             f.detail = "Not applicable to banks, NBFCs or insurers."
         extras["financial_company"] = True
     return flags, extras
+
+
+# --------------------------------------------------------------------------
+# Balance-sheet stress (scored separately from the red-flag score)
+# --------------------------------------------------------------------------
+STRESS_LAYER = "Balance-sheet stress"
+
+
+def stress_flags(fin: pd.DataFrame, profile=None, market_cap: float = np.nan) -> tuple[list[Flag], dict]:
+    """
+    Can the company carry its debt? Distress is not fraud, so these checks feed a separate stress score.
+    Backtest: interest cover below 2 caught 7 of 15 later failures and no low-debt clean company-year, but
+    also trips healthy heavy borrowers (Bharti, Tata Power, IndiGo) — hence a separate gauge.
+    """
+    from sector import DEFAULT_TH
+    L = STRESS_LAYER
+    flags: list[Flag] = []
+    extras: dict = {}
+    if fin is None or fin.empty or (profile is not None and (not profile.financial_layer or profile.broker_layer)):
+        return flags, extras   # lenders, brokers and insurers have their own leverage checks
+    TH = profile.th if profile is not None else DEFAULT_TH
+    cols = list(fin.columns)
+    last, k3 = cols[-1], cols[-3:]
+    debt, ta = _row(fin, "total_debt"), _row(fin, "total_assets")
+    intx = _row(fin, "interest_expense")
+    ebitda = _ebitda(fin)
+    ebit = _row(fin, "ebit").fillna(_row(fin, "pbt") + intx.fillna(0))
+    material = pd.notna(debt.get(last)) and pd.notna(ta.get(last)) and ta[last] > 0 and debt[last] / ta[last] > 0.05
+
+    # S1 interest cover
+    f = Flag("interest_cover", L, "Interest cover (3-yr)", 2,
+             why="When operating profit barely covers interest, any setback means a default, a distressed fund-raise "
+                 "or pressure to dress up results.",
+             benign="Projects just commissioned (interest starts before full revenue), deliberately leveraged "
+                    "regulated assets, lease-heavy airlines and retailers.")
+    if intx[k3].notna().sum() >= 2 and ebit[k3].notna().sum() >= 2:
+        i_sum, e_sum = intx[k3].sum(), ebit[k3].sum()
+        t = TH["interest_cover"]
+        if not material or i_sum <= 0:
+            f.severity, f.value, f.detail = GREEN, "little debt", "Debt under 5% of assets or no interest charge."
+        else:
+            icr = e_sum / i_sum
+            f.severity = RED if icr < t["red"] else AMBER if icr < t["amber"] else GREEN
+            f.value = f"{icr:.1f}×"
+            f.detail = (f"Operating profit (EBIT) ÷ interest over {len(k3)} yrs: ₹{e_sum:,.0f} Cr vs ₹{i_sum:,.0f} Cr. "
+                        f"Below {t['amber']}× watch, below {t['red']}× red.")
+        f.series = _safe_div(ebit, intx)
+    flags.append(f)
+
+    # S2 debt / EBITDA
+    f = Flag("debt_ebitda", L, "Debt ÷ EBITDA (latest)", 2,
+             why="Years of operating profit needed to repay debt; high multiples leave no room for a bad year.",
+             benign="Capital-heavy businesses early in a build-out; infrastructure with long, regulated cash flows.")
+    if pd.notna(debt.get(last)) and pd.notna(ebitda.get(last)):
+        t = TH["debt_ebitda"]
+        if not material:
+            f.severity, f.value, f.detail = GREEN, "little debt", "Debt under 5% of assets."
+        elif ebitda[last] <= 0:
+            f.severity, f.value = RED, "EBITDA ≤ 0"
+            f.detail = f"Debt ₹{debt[last]:,.0f} Cr with no operating profit to service it."
+        else:
+            m = debt[last] / ebitda[last]
+            f.severity = RED if m > t["red"] else AMBER if m > t["amber"] else GREEN
+            f.value = f"{m:.1f}×"
+            f.detail = f"Total debt ÷ EBITDA, latest year. Above {t['amber']}× watch, above {t['red']}× red."
+        f.series = _safe_div(debt, ebitda)
+    flags.append(f)
+
+    # S3 Altman Z'' (distress, not fraud)
+    f = Flag("altman", L, "Altman Z″ (financial distress)", 1.5,
+             why="Distress gives management a motive to dress up the numbers.",
+             benign="Asset-light or high-growth firms can score low without being in trouble.")
+    z = altman_z2(fin)
+    extras["altman"] = z
+    zo = altman_original(fin, market_cap) if TH["altman"]["model"] == "z_orig" else np.nan
+    if pd.notna(zo):
+        f.title = "Altman Z (manufacturing, financial distress)"
+        f.severity = RED if zo < 1.81 else AMBER if zo < 2.99 else GREEN
+        f.value = _fmt(zo)
+        f.detail = "Original Z with today's market value of equity: below 1.81 distress, 1.81–2.99 grey zone."
+    elif pd.notna(z.get(last)):
+        f.severity = RED if z[last] < 1.1 else AMBER if z[last] < 2.6 else GREEN
+        f.value = _fmt(z[last])
+        f.detail = "Z″ form for non-manufacturers: below 1.1 distress, 1.1–2.6 grey zone."
+        f.series = z
+    flags.append(f)
+
+
+    if profile is not None:
+        for f in flags:
+            if f.key in profile.skip:
+                f.severity, f.value = None, "n/a"
+                f.detail = f"Not scored for {profile.label.lower()}: {profile.skip[f.key]}."
+            if f.key in profile.weights:
+                f.weight = profile.weights[f.key]
+    return flags, extras
+
+
+def stress_band(score) -> str:
+    if pd.isna(score):
+        return "Not enough data"
+    return "Low stress" if score < 25 else "Moderate stress" if score < 50 else "High stress"
 
 
 # --------------------------------------------------------------------------

@@ -227,6 +227,10 @@ if profile.financial_layer:
     fin_flags, extras = fx.financial_flags(base, info, profile, mcap, extra=sc_meta)
     if profile.keep_only:   # broker: only the kept accounting tests are shown
         fin_flags = [f for f in fin_flags if f.key in profile.keep_only]
+# Balance-sheet stress: scored separately — distress is a risk, not a sign of manipulation
+stress_flags, stress_extras = fx.stress_flags(fin, profile, mcap) if fin is not None else ([], {})
+extras.update(stress_extras)
+stress = fx.composite(stress_flags) if stress_flags else None
 # Sector-specific module ("lend_flags" holds lender, broker or insurer checks)
 special_name = ("Lender forensics" if lender else "Broker forensics" if profile.broker_layer
                 else "Insurer forensics" if profile.insurer_layer else "")
@@ -252,7 +256,7 @@ if use_peers and sc_res is not None and sc_res.get("peers") and mode:
                 peer_raw[name] = m
     target_m = pr.metrics_from_tables(sc_res["tables"], mode)
     peer_cmp = pr.compare(target_m, peer_raw, mode)
-    pr.apply_to_flags(lend_flags + fin_flags, peer_cmp)
+    pr.apply_to_flags(lend_flags + fin_flags + stress_flags, peer_cmp)
 
 own_flags = fx.ownership_flags(sh_for_flags, nse.get("pledges"), nse.get("insider"),
                                pledge_fallback=sc_meta.get("pledge_pct", float("nan")))
@@ -281,15 +285,31 @@ cls = sc_meta.get("classification") or {}
 st.info(f"**Rule book: {profile.label}** ({kind_why}). {profile.note}"
         + (f" Compared with {len(peer_raw)} sector peers." if peer_raw else ""))
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c5, c2, c3, c4 = st.columns(5)
 score_txt = "—" if pd.isna(comp["score"]) else f"{comp['score']:.0f} / 100"
-c1.metric("Red-flag score", score_txt)
+c1.metric("Red-flag score", score_txt, help="Accounting quality, ownership and filings: signs the numbers may not be reliable.")
+s_score = stress["score"] if stress else np.nan
+c5.metric("Balance-sheet stress", "—" if pd.isna(s_score) else f"{s_score:.0f} / 100",
+          help="Interest cover, debt ÷ EBITDA and Altman. Can the company carry its debt? Scored separately "
+               "because distress is a risk, not a sign of manipulation. Lenders, brokers and insurers use their own "
+               "leverage checks instead.")
 c2.metric("Red flags", comp["red"])
 c3.metric("Watch items", comp["amber"])
 c4.metric("Model coverage", f"{comp['coverage'] * 100:.0f}%",
           help="Share of the weighted checks that had enough data to run.")
-st.markdown(f"<span class='band' style='background:{BAND_COLOR[comp['band']]}'>{comp['band']}</span>",
+s_band = fx.stress_band(s_score)
+STRESS_COLOR = {"Low stress": "#1e8e3e", "Moderate stress": "#b08900", "High stress": "#c92a2a",
+                "Not enough data": "#6c757d"}
+st.markdown(f"<span class='band' style='background:{BAND_COLOR[comp['band']]}'>{comp['band']}</span> &nbsp; "
+            + (f"<span class='band' style='background:{STRESS_COLOR[s_band]}'>{s_band}</span>" if stress else ""),
             unsafe_allow_html=True)
+if lender:
+    gn = next((f for f in lend_flags if f.key == "gnpa"), None)
+    if gn is None or gn.severity is None:
+        st.warning("**Asset quality not tested.** Screener didn't return enough bad-loan (NPA) history, so this "
+                   "score rests on growth, funding and capital checks only. Bad-loan problems — the usual way banks "
+                   "and NBFCs fail — would not show here. Check gross/net NPA, slippages and RBI divergence "
+                   "disclosures in the annual report.")
 if comp["coverage"] < 0.6:
     st.caption("Coverage is low, so read the score loosely — missing data isn't the same as a clean result.")
 
@@ -316,7 +336,7 @@ def flag_card(f: fx.Flag):
 
 
 st.subheader("What stands out")
-top = sorted([f for f in all_flags if f.severity in (1, 2)], key=lambda f: (-f.severity, -f.weight))
+top = sorted([f for f in all_flags + stress_flags if f.severity in (1, 2)], key=lambda f: (-f.severity, -f.weight))
 if top:
     for f in top:
         flag_card(f)
@@ -355,8 +375,12 @@ with t7:
                                  customdata=tline[["red", "watch"]].values,
                                  hovertemplate="%{x}: %{y:.0f}<br>%{customdata[0]} red · %{customdata[1]} watch"
                                                "<extra></extra>"))
+        if tline["stress"].notna().any():
+            fig.add_trace(go.Scatter(x=tline.index, y=tline["stress"], mode="lines+markers", name="Balance-sheet stress",
+                                     line=dict(color="#495057", width=2, dash="dot"),
+                                     hovertemplate="%{x}: stress %{y:.0f}<extra></extra>"))
         fig.update_layout(height=340, margin=dict(l=10, r=10, t=10, b=10), yaxis=dict(range=[0, 100], title="Score"),
-                          showlegend=False)
+                          showlegend=True, legend=dict(orientation="h", y=-0.15))
         st.plotly_chart(fig, width="stretch")
         latest_live = comp["score"]
         st.caption("Shaded bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 high. "
@@ -365,9 +389,10 @@ with t7:
                    f"from today's headline score ({'—' if pd.isna(latest_live) else f'{latest_live:.0f}'}). "
                    "Screener shows restated figures, so a year that was later restated is scored on the corrected numbers.")
         show = tline.drop(columns=["_red_keys"]).rename(columns={
-            "score": "Score", "band": "Band", "red": "Red", "watch": "Watch", "coverage": "Coverage",
+            "score": "Score", "stress": "Stress", "band": "Band", "red": "Red", "watch": "Watch", "coverage": "Coverage",
             "red_checks": "Red checks", "watch_checks": "Watch checks"})
         show["Score"] = show["Score"].round(0)
+        show["Stress"] = show["Stress"].round(0)
         show["Coverage"] = (show["Coverage"] * 100).round(0).astype(int).astype(str) + "%"
         st.dataframe(show.iloc[::-1], width="stretch")
         new_red = []
@@ -415,6 +440,10 @@ with t1:
         st.info(profile.note)
     else:
         st.dataframe(flags_table(fin_flags), hide_index=True, width="stretch")
+    if stress_flags:
+        st.markdown(f"**Balance-sheet stress** — {'—' if pd.isna(s_score) else f'{s_score:.0f}/100'} ({s_band}). "
+                    "Not part of the red-flag score.")
+        st.dataframe(flags_table(stress_flags), hide_index=True, width="stretch")
     if fin is not None and profile.financial_layer and not profile.keep_only:
         f = fin
         yrs = list(f.columns)
@@ -563,7 +592,7 @@ with t4:
             st.dataframe(pd.DataFrame(rows).round(0), hide_index=True, width="stretch")
             st.caption("Gaps above 5% are marked. Usually a definition difference (e.g. borrowings incl. leases, "
                        "consolidated vs standalone) — but worth knowing which figure the flags used.")
-    st.download_button("Download flag report (CSV)", flags_table(all_flags).to_csv(index=False).encode(),
+    st.download_button("Download flag report (CSV)", flags_table(all_flags + stress_flags).to_csv(index=False).encode(),
                        file_name=f"{symbol}_red_flags.csv", mime="text/csv")
 
 with t5:
@@ -576,14 +605,20 @@ Bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 hi
 - Operating cash flow / EBITDA over up to 5 years: ≥70% clear, 50–70% watch, <50% red
 - Operating cash flow / net profit: ≥80% clear, <50% red
 - Receivable days: red if up >30% and >15 days; inventory days: red if up >30% and >20 days
-- Beneish M-Score (8-variable): above −1.78 red, −2.22 to −1.78 watch; missing components set to 1
+- Beneish M-Score (8-variable, weight 2): above −1.78 red, −2.22 to −1.78 watch; missing components set to 1
 - Sloan accrual ratio (cash-flow form): within ±10% clear, above 25% red
 - Montier C-Score: 3-year average of 4+ (with latest 4+) red; average 3+ or a single year at 4+ watch
 - Return on cash: below 2% red, 2–4% watch, only when cash is ≥5% of assets
 - Cash and debt both above 15% of assets watch, both above 25% red
 - 3-year effective tax rate below 12% red, 12–18% watch
 - Non-operating income above 40% of pre-tax profit red
-- Altman Z″ below 1.1 red, 1.1–2.6 grey; manufacturers use the original Z (below 1.81 red, 1.81–2.99 grey) — distress, not fraud
+- Weights set by the backtest: cash conversion 3; Beneish 2 (it fired in 14% of clean years); Montier 1; non-operating income, tax and dilution raised (red in 23–31% of failures, 0% of clean years)
+
+**Balance-sheet stress** (separate score, not part of the red-flag score; same formula, bands under 25 low, 25–50 moderate, 50+ high)
+- Interest cover (EBIT ÷ interest, 3 yrs): below 2.5× watch, below 1.5× red, when debt is over 5% of assets
+- Debt ÷ EBITDA: above 4× watch, above 6× red; debt with no operating profit red
+- Altman Z″ below 1.1 red, 1.1–2.6 grey; manufacturers use the original Z (below 1.81 red, 1.81–2.99 grey)
+- Healthy heavy borrowers (power, telecom, airlines, infrastructure) also score high: read it as how little room there is, not as a prediction
 - Banks / NBFCs: gross NPA above 6% (bank) / 5% (NBFC) or up >1.5 points in a year red; provision coverage below 50% red;
   loan growth above 40% / 50% a year red; bank loans outgrowing deposits by >15 points red; NBFC borrowings above 8× net worth red
 - Supplier payment days (payables ÷ operating costs): two-year averages, watch if up >20% and >10 days, red if up >40% and >20 days
@@ -624,14 +659,14 @@ Bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 hi
 
     bt = load_backtest()
     if bt:
-        cur, old = bt["summary"]["current"], bt["summary"].get("without_new_checks", {})
+        cur, old = bt["summary"]["current"], bt["summary"].get("previous_version", {})
         st.markdown(f"**Backtest** (run {bt['generated']}): point-in-time scores for {cur['n_fail']} companies that later "
                     f"hit a regulatory order, default, insolvency or disclosed fraud, versus {len(bt['controls'])} large "
                     f"clean companies scored every year FY2017–FY2025 ({cur['n_control_years']} company-years).")
         b1, b2, b3 = st.columns(3)
         b1.metric("Failures ≥20 at last accounts before the event", f"{cur['hit_t0_20']}/{cur['n_fail']}")
         b2.metric("Clean company-years ≥20 (false alarms)", f"{cur['fp_20']}/{cur['n_control_years']}",
-                  delta=(f"{cur['fp_20'] - old['fp_20']} vs without new checks" if old else None), delta_color="inverse")
+                  delta=(f"{cur['fp_20'] - old['fp_20']} vs previous version" if old else None), delta_color="inverse")
         b3.metric("Median score: failures vs clean", f"{cur['median_fail_t0']:.0f} vs {cur['median_control']:.0f}")
         st.caption(f"At the 35 line: {cur['hit_t0_35']}/{cur['n_fail']} failures and {cur['fp_35']} clean company-years. "
                    "One year earlier (t−1): "
@@ -639,11 +674,20 @@ Bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 hi
         fdf = pd.DataFrame(bt["failures"])
         fdf = fdf.rename(columns={"symbol": "Company", "type": "Rule book", "event": "Event", "t0": "Last accounts",
                                   "score_t0": "Score", "score_t1": "Year before", "score_t2": "Two years before",
-                                  "red_t0": "Red checks"})
+                                  "red_t0": "Red checks", "stress_t0": "Stress"})
         fdf["Red checks"] = fdf["Red checks"].apply(lambda x: ", ".join(x))
         st.dataframe(fdf.round(0), hide_index=True, width="stretch")
         rr = pd.DataFrame(cur["red_rate"]).T.rename(columns={"fail": "Red in failures", "control": "Red in clean years"})
         st.dataframe((rr * 100).round(0).astype(int).astype(str) + "%", width="stretch")
+        sx = bt.get("stress")
+        if sx:
+            st.markdown(f"**Balance-sheet stress** (separate gauge): failures median {sx['median_fail']:.0f}, clean companies "
+                        f"{sx['median_ctrl']:.0f}, but healthy heavy borrowers (NTPC, Tata Power, Bharti, IndiGo, GMR…) "
+                        f"also {sx['median_lev']:.0f}. Stress 50+: {sx['fail_50']}/{sx['n_fail']} failures vs "
+                        f"{sx['lev_50']}/{sx['n_lev']} heavy-borrower years. It shows how little room a company has, not "
+                        f"whether it will fail. {sx.get('either_flagged', '—')}/{cur['n_fail']} failures had a red-flag score "
+                        f"of 20+ or stress of 50+; the heavy borrowers' red-flag score stayed below 20 in "
+                        f"{sx['lev_redflag_n'] - sx['lev_redflag_20']}/{sx['lev_redflag_n']} years.")
         missed = [f["symbol"] for f in bt["failures"] if f["score_t0"] is not None and f["score_t0"] < 20]
         st.caption(f"Read this as a sanity check, not proof. {cur['n_fail']} failures is a small sample; Screener shows "
                    "restated figures (which can flatter detection for companies that later restated); companies "

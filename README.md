@@ -54,9 +54,13 @@ The Timeline tab re-runs the statement-based checks as of each past fiscal year-
 
 ## Backtest
 
-`python backtest.py [cache_dir]` scores 13 companies that later hit a regulatory order, default, insolvency or disclosed fraud at their last accounts before the event, against 20 large clean companies scored every year FY2017–FY2025. Results go to `backtest_results.json` and show in the Method tab.
+`python backtest.py [cache_dir]` scores 17 companies that later hit a regulatory order, default, insolvency, disclosed fraud or a collapse (Yes Bank, Reliance Power, Indiabulls Housing, Future Retail…) at their last accounts before the event, against 20 large clean companies and 14 healthy heavy borrowers scored every year FY2017–FY2025. Results go to `backtest_results.json` and show in the Method tab.
 
-Latest run (15 Nov 2026): 9/13 failures scored 20 or more at their last accounts before the event, against 19/176 clean company-years (without the five newest checks: 26). At 35: 4/13 failures, 2 clean company-years. Median score 30 for failures vs 8 for clean years. Small sample, restated figures and survivorship apply; read it as a sanity check.
+Latest run (15 Nov 2026): red-flag score 20+ for 11/17 failures vs 12/176 clean company-years (previous version 19); 35+ for 6/17 failures vs 0 clean years. 16/17 failures had a red-flag score of 20+ or balance-sheet stress of 50+, but stress is also 50+ in 52/124 heavy-borrower years, so stress is context, not a prediction. Small sample, restated figures and survivorship apply.
+
+## Balance-sheet stress
+
+A second score, kept out of the red-flag score: interest cover, debt ÷ EBITDA and Altman. Bands: under 25 low, 25–50 moderate, 50+ high. Not shown for lenders, brokers, insurers and holding companies.
 
 ## Score
 

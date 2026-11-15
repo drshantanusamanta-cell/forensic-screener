@@ -28,6 +28,8 @@ DEFAULT_TH = {
     "exceptional": {"share": 0.10, "amber": 2, "red": 3},
     "dilution": {"amber": 0.05, "red": 0.10},
     "contingent": {"amber": 0.25, "red": 0.50},
+    "interest_cover": {"amber": 2.5, "red": 1.5},
+    "debt_ebitda": {"amber": 4.0, "red": 6.0},
 }
 
 
@@ -121,7 +123,9 @@ PROFILES = {
               "tax": "associates' profits are booked after their own tax",
               "cfo_ni": "equity-accounted profits are non-cash",
               "sloan": "equity-accounted profits inflate accruals mechanically",
-              "dpo": "no meaningful trade-payables cycle"}),
+              "dpo": "no meaningful trade-payables cycle",
+              "interest_cover": "operating profit excludes associates' earnings that service holding-company debt",
+              "debt_ebitda": "operating profit excludes associates' earnings that service holding-company debt"}),
     "broker": _p(
         "broker", "Stockbroker",
         "Client money, exchange margins and margin-trading loans run through the balance sheet and cash flow, so "

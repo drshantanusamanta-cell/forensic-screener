@@ -89,6 +89,14 @@ def flags_at(fy: int, fin: pd.DataFrame, profile, info: dict, kind: str,
     return flags
 
 
+def stress_at(fy: int, fin: pd.DataFrame, profile):
+    cols = [c for c in fin.columns if str(c).startswith("FY") and int(str(c)[2:]) <= fy]
+    if len(cols) < MIN_YEARS:
+        return np.nan
+    fl, _ = fx.stress_flags(fin[cols], _no_mcap_profile(profile), np.nan)
+    return fx.composite(fl)["score"] if fl else np.nan
+
+
 def build(fin: pd.DataFrame, profile, info: dict, kind: str, tables: dict | None = None,
           sched: dict | None = None, manual: dict | None = None) -> pd.DataFrame:
     """One row per fiscal year: score, band, red/watch counts, coverage and which checks were red or watch."""
@@ -102,7 +110,8 @@ def build(fin: pd.DataFrame, profile, info: dict, kind: str, tables: dict | None
             continue
         c = fx.composite(flags)
         rows.append({
-            "year": f"FY{fy}", "score": c["score"], "band": c["band"], "red": c["red"], "watch": c["amber"],
+            "year": f"FY{fy}", "score": c["score"], "band": c["band"],
+            "stress": stress_at(fy, fin, profile), "red": c["red"], "watch": c["amber"],
             "coverage": c["coverage"],
             "red_checks": ", ".join(f.title for f in flags if f.severity == fx.RED),
             "watch_checks": ", ".join(f.title for f in flags if f.severity == fx.AMBER),
