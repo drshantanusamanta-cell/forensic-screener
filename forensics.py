@@ -294,6 +294,38 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
         f.series = fcf
     flags.append(f)
 
+    # F3b P/E vs P/FCF mismatch — a stock that looks cheap on earnings but expensive on free cash flow.
+    # Same 3 fiscal years for both legs (capex is lumpy; Indian cash flows are only half-yearly / yearly).
+    f = Flag("pe_pfcf", L, "P/E vs P/FCF mismatch (3-yr average)", 1,
+             why="When the market price looks reasonable on reported profit but several times richer on free cash flow, "
+                 "the profit is not turning into cash — receivables, inventory or capitalised costs are absorbing it.",
+             benign="Heavy growth capex or a one-off working-capital build in the last three years; check whether "
+                    "capacity and revenue followed.")
+    t = TH["pe_pfcf"]
+    w3 = cols[-3:]
+    ni3, fcf3 = ni[w3].mean(), fcf[w3].mean()
+    have3 = len(w3) == 3 and ni[w3].notna().all() and fcf[w3].notna().all()
+    if have3 and pd.notna(market_cap) and market_cap > 0 and pd.notna(ni[last]) and ni[last] > 0 and ni3 > 0:
+        pe = market_cap / ni[last]
+        if fcf3 <= 0:
+            f.severity, f.value = AMBER, f"P/E {pe:.0f}x · P/FCF N/A"
+            f.detail = (f"3-yr average FCF is ₹{fcf3:,.0f} Cr (negative), so P/FCF has no meaning; profits averaged "
+                        f"₹{ni3:,.0f} Cr. FCF yield {_fmt_pct(fcf3 / market_cap, 1)}. See the free-cash-flow check above.")
+        else:
+            pfcf, gap = market_cap / fcf3, ni3 / fcf3   # gap = (P/FCF) ÷ (P/E) on the same 3 years
+            f.severity = RED if gap > t["red"] else AMBER if gap > t["amber"] else GREEN
+            f.value = f"P/E {pe:.0f}x · P/FCF {pfcf:.0f}x"
+            f.detail = (f"P/E on latest profit; P/FCF on 3-yr average FCF (CFO − capex), FCF yield "
+                        f"{_fmt_pct(fcf3 / market_cap, 1)}. On the same three years P/FCF is {gap:.1f}× P/E "
+                        f"(up to {t['amber']:.1f}× clear, above {t['red']:.1f}× red).")
+        f.series = _safe_div(ni.rolling(3, min_periods=3).mean(), fcf.rolling(3, min_periods=3).mean()) \
+            .where(fcf.rolling(3, min_periods=3).mean() > 0)
+    elif not (pd.notna(market_cap) and market_cap > 0):
+        f.detail = "Not evaluated: market cap unavailable."
+    else:
+        f.detail = "Not evaluated: needs three years of profit and cash flow, with positive profit."
+    flags.append(f)
+
     # F4 receivable days
     f = Flag("dso", L, "Receivable days trend", 2,
              why="Receivables growing faster than sales can mean booked revenue that customers have not paid — or fictitious sales.",

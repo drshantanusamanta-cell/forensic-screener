@@ -642,6 +642,7 @@ Bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 hi
 **Default thresholds** (manufacturers; other company types adjust these — see the table below)
 - Operating cash flow / EBITDA over up to 5 years: ≥70% clear, 50–70% watch, <50% red
 - Operating cash flow / net profit: ≥80% clear, <50% red
+- P/E vs P/FCF (3-yr averages, P/FCF ÷ P/E): up to 1.5× clear, above 2.5× red; negative average FCF (P/FCF N/A) watch. Weight 1 (0.5 for EPC/realty and utilities), not yet backtested
 - Receivable days: red if up >30% and >15 days; inventory days: red if up >30% and >20 days
 - Beneish M-Score (8-variable, weight 2): above −1.78 red, −2.22 to −1.78 watch; missing components set to 1
 - Sloan accrual ratio (cash-flow form): within ±10% clear, above 25% red
