@@ -302,28 +302,28 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
              benign="Heavy growth capex or a one-off working-capital build in the last three years; check whether "
                     "capacity and revenue followed.")
     t = TH["pe_pfcf"]
-    w3 = cols[-3:]
-    ni3, fcf3 = ni[w3].mean(), fcf[w3].mean()
-    have3 = len(w3) == 3 and ni[w3].notna().all() and fcf[w3].notna().all()
-    if have3 and pd.notna(market_cap) and market_cap > 0 and pd.notna(ni[last]) and ni[last] > 0 and ni3 > 0:
-        pe = market_cap / ni[last]
+    # The test itself needs no price: (P/FCF) ÷ (P/E) on the same 3 years = avg profit ÷ avg FCF. Market cap only
+    # adds the P/E, P/FCF and FCF-yield figures to the text, so the timeline can score past years too.
+    ni_r, fcf_r = ni.rolling(3, min_periods=3).mean(), fcf.rolling(3, min_periods=3).mean()
+    f.series = _safe_div(ni_r, fcf_r).where((fcf_r > 0) & (ni_r > 0))
+    ni3, fcf3 = ni_r[last], fcf_r[last]
+    have_mc = pd.notna(market_cap) and market_cap > 0
+    if pd.notna(ni3) and pd.notna(fcf3) and ni3 > 0:
+        pe_txt = f"P/E {market_cap / ni[last]:.0f}x · " if have_mc and pd.notna(ni[last]) and ni[last] > 0 else ""
+        yld_txt = f" FCF yield {_fmt_pct(fcf3 / market_cap, 1)}." if have_mc else ""
         if fcf3 <= 0:
-            f.severity, f.value = AMBER, f"P/E {pe:.0f}x · P/FCF N/A"
+            f.severity, f.value = AMBER, f"{pe_txt}P/FCF N/A"
             f.detail = (f"3-yr average FCF is ₹{fcf3:,.0f} Cr (negative), so P/FCF has no meaning; profits averaged "
-                        f"₹{ni3:,.0f} Cr. FCF yield {_fmt_pct(fcf3 / market_cap, 1)}. See the free-cash-flow check above.")
+                        f"₹{ni3:,.0f} Cr.{yld_txt} See the free-cash-flow check above.")
         else:
-            pfcf, gap = market_cap / fcf3, ni3 / fcf3   # gap = (P/FCF) ÷ (P/E) on the same 3 years
+            gap = ni3 / fcf3
             f.severity = RED if gap > t["red"] else AMBER if gap > t["amber"] else GREEN
-            f.value = f"P/E {pe:.0f}x · P/FCF {pfcf:.0f}x"
-            f.detail = (f"P/E on latest profit; P/FCF on 3-yr average FCF (CFO − capex), FCF yield "
-                        f"{_fmt_pct(fcf3 / market_cap, 1)}. On the same three years P/FCF is {gap:.1f}× P/E "
-                        f"(up to {t['amber']:.1f}× clear, above {t['red']:.1f}× red).")
-        f.series = _safe_div(ni.rolling(3, min_periods=3).mean(), fcf.rolling(3, min_periods=3).mean()) \
-            .where(fcf.rolling(3, min_periods=3).mean() > 0)
-    elif not (pd.notna(market_cap) and market_cap > 0):
-        f.detail = "Not evaluated: market cap unavailable."
+            f.value = f"{pe_txt}P/FCF {market_cap / fcf3:.0f}x" if have_mc else f"P/FCF = {gap:.1f}× P/E"
+            f.detail = (f"On the same three years P/FCF is {gap:.1f}× P/E — average profit ₹{ni3:,.0f} Cr vs average "
+                        f"free cash flow (CFO − capex) ₹{fcf3:,.0f} Cr.{yld_txt} "
+                        f"Up to {t['amber']:.1f}× clear, above {t['red']:.1f}× red.")
     else:
-        f.detail = "Not evaluated: needs three years of profit and cash flow, with positive profit."
+        f.detail = "Not evaluated: needs three years of profit and cash flow, with positive average profit."
     flags.append(f)
 
     # F4 receivable days
