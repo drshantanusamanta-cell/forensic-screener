@@ -504,6 +504,22 @@ with t1:
                         legend=dict(orientation="h", y=-0.25))
         st.plotly_chart(g, width="stretch")
 
+        # P/E vs P/FCF history: (P/FCF) ÷ (P/E) on rolling 3-yr averages = avg profit ÷ avg FCF (price-free)
+        pf = next((x for x in fin_flags if x.key == "pe_pfcf"), None)
+        gs = pf.series.dropna() if pf is not None and pf.series is not None and pf.severity is not None else None
+        if gs is not None and len(gs) >= 2:
+            th = profile.th["pe_pfcf"]
+            g = go.Figure()
+            g.add_scatter(x=list(gs.index), y=gs.values, mode="lines+markers", name="P/FCF ÷ P/E")
+            g.add_hline(y=th["amber"], line=dict(color="#FFA000", dash="dot"), annotation_text=f"watch {th['amber']:.1f}×")
+            g.add_hline(y=th["red"], line=dict(color="#D32F2F", dash="dot"), annotation_text=f"red {th['red']:.1f}×")
+            g.update_layout(title="P/FCF vs P/E gap (rolling 3-yr averages)", height=320,
+                            margin=dict(l=10, r=10, t=50, b=10), yaxis_title="× P/E")
+            st.plotly_chart(g, width="stretch")
+            st.caption("Each point = average profit ÷ average free cash flow over the three years ending that year, "
+                       "which equals how many times richer the stock is on P/FCF than on P/E. Years with negative "
+                       "average FCF are left blank (P/FCF N/A).")
+
         bm = extras.get("beneish")
         if bm is not None and not bm.empty:
             g = go.Figure()
@@ -642,6 +658,7 @@ Bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 hi
 **Default thresholds** (manufacturers; other company types adjust these — see the table below)
 - Operating cash flow / EBITDA over up to 5 years: ≥70% clear, 50–70% watch, <50% red
 - Operating cash flow / net profit: ≥80% clear, <50% red
+- P/E vs P/FCF (3-yr averages, P/FCF ÷ P/E): up to 1.5× clear, above 2.5× red; negative average FCF (P/FCF N/A) watch. Price-free, so it is also scored on the Timeline. Weight 1 (0.5 for EPC/realty and utilities), not yet backtested
 - Receivable days: red if up >30% and >15 days; inventory days: red if up >30% and >20 days
 - Beneish M-Score (8-variable, weight 2): above −1.78 red, −2.22 to −1.78 watch; missing components set to 1
 - Sloan accrual ratio (cash-flow form): within ±10% clear, above 25% red

@@ -294,6 +294,38 @@ def financial_flags(fin: pd.DataFrame, info: dict, profile=None, market_cap: flo
         f.series = fcf
     flags.append(f)
 
+    # F3b P/E vs P/FCF mismatch — a stock that looks cheap on earnings but expensive on free cash flow.
+    # Same 3 fiscal years for both legs (capex is lumpy; Indian cash flows are only half-yearly / yearly).
+    f = Flag("pe_pfcf", L, "P/E vs P/FCF mismatch (3-yr average)", 1,
+             why="When the market price looks reasonable on reported profit but several times richer on free cash flow, "
+                 "the profit is not turning into cash — receivables, inventory or capitalised costs are absorbing it.",
+             benign="Heavy growth capex or a one-off working-capital build in the last three years; check whether "
+                    "capacity and revenue followed.")
+    t = TH["pe_pfcf"]
+    # The test itself needs no price: (P/FCF) ÷ (P/E) on the same 3 years = avg profit ÷ avg FCF. Market cap only
+    # adds the P/E, P/FCF and FCF-yield figures to the text, so the timeline can score past years too.
+    ni_r, fcf_r = ni.rolling(3, min_periods=3).mean(), fcf.rolling(3, min_periods=3).mean()
+    f.series = _safe_div(ni_r, fcf_r).where((fcf_r > 0) & (ni_r > 0))
+    ni3, fcf3 = ni_r[last], fcf_r[last]
+    have_mc = pd.notna(market_cap) and market_cap > 0
+    if pd.notna(ni3) and pd.notna(fcf3) and ni3 > 0:
+        pe_txt = f"P/E {market_cap / ni[last]:.0f}x · " if have_mc and pd.notna(ni[last]) and ni[last] > 0 else ""
+        yld_txt = f" FCF yield {_fmt_pct(fcf3 / market_cap, 1)}." if have_mc else ""
+        if fcf3 <= 0:
+            f.severity, f.value = AMBER, f"{pe_txt}P/FCF N/A"
+            f.detail = (f"3-yr average FCF is ₹{fcf3:,.0f} Cr (negative), so P/FCF has no meaning; profits averaged "
+                        f"₹{ni3:,.0f} Cr.{yld_txt} See the free-cash-flow check above.")
+        else:
+            gap = ni3 / fcf3
+            f.severity = RED if gap > t["red"] else AMBER if gap > t["amber"] else GREEN
+            f.value = f"{pe_txt}P/FCF {market_cap / fcf3:.0f}x" if have_mc else f"P/FCF = {gap:.1f}× P/E"
+            f.detail = (f"On the same three years P/FCF is {gap:.1f}× P/E — average profit ₹{ni3:,.0f} Cr vs average "
+                        f"free cash flow (CFO − capex) ₹{fcf3:,.0f} Cr.{yld_txt} "
+                        f"Up to {t['amber']:.1f}× clear, above {t['red']:.1f}× red.")
+    else:
+        f.detail = "Not evaluated: needs three years of profit and cash flow, with positive average profit."
+    flags.append(f)
+
     # F4 receivable days
     f = Flag("dso", L, "Receivable days trend", 2,
              why="Receivables growing faster than sales can mean booked revenue that customers have not paid — or fictitious sales.",

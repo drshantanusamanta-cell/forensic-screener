@@ -30,6 +30,8 @@ DEFAULT_TH = {
     "contingent": {"amber": 0.25, "red": 0.50},
     "interest_cover": {"amber": 2.5, "red": 1.5},
     "debt_ebitda": {"amber": 4.0, "red": 6.0},
+    # (P/FCF) ÷ (P/E) on the same 3 years = avg profit ÷ avg FCF. Starting points, not backtested.
+    "pe_pfcf": {"amber": 1.5, "red": 2.5},
 }
 
 
@@ -95,14 +97,14 @@ PROFILES = {
             "dso": {"amber_rel": 0.25, "amber_abs": 20, "red_rel": 0.50, "red_abs": 40},
             "dio": {"amber_rel": 0.30, "amber_abs": 60, "red_rel": 0.60, "red_abs": 120},
             "debt": {"amber": 1.5, "red": 3.0}},
-        weights={"fcf": 1, "cwip": 0.5, "interest_rate": 0.5}),
+        weights={"fcf": 1, "pe_pfcf": 0.5, "cwip": 0.5, "interest_rate": 0.5}),
     "utilities": _p(
         "utilities", "Power / telecom / infrastructure operator",
         "Regulated, capital-heavy businesses: high debt and multi-year CWIP are normal, free cash flow is often "
         "negative during build-out. Debt and CWIP thresholds are higher.",
         th={"cwip": {"amber": 0.60, "red": 1.20}, "debt": {"amber": 2.0, "red": 3.5},
             "cash_debt": {"amber": 0.20, "red": 0.30}},
-        weights={"fcf": 0.5, "altman": 1, "cwip": 1.5, "interest_rate": 0.5}),
+        weights={"fcf": 0.5, "pe_pfcf": 0.5, "altman": 1, "cwip": 1.5, "interest_rate": 0.5}),
     "pharma": _p(
         "pharma", "Pharmaceuticals / biotech",
         "Capitalised R&D and acquired intangibles deserve more weight; receivables (distributor stuffing, "
@@ -140,7 +142,7 @@ PROFILES = {
         "of profit.",
         th={"other_income": {"amber": 0.35, "red": 0.60}},
         skip={k: "clearing-member money distorts it for exchanges"
-              for k in ("cfo_ebitda", "cfo_ni", "fcf", "sloan", "beneish", "montier", "cash_yield", "cash_debt",
+              for k in ("cfo_ebitda", "cfo_ni", "fcf", "pe_pfcf", "sloan", "beneish", "montier", "cash_yield", "cash_debt",
                         "altman", "dio", "dpo")}),
     "amc_rta": _p(
         "amc_rta", "AMC / registrar / depository / ratings",
