@@ -225,6 +225,16 @@ if profile.insurer_layer:
         manual["persistency13"] = st.sidebar.number_input("13th-month persistency %", 0.0, 100.0, 0.0, 1.0) or None
     else:
         manual["combined"] = st.sidebar.number_input("Combined ratio %", 0.0, 300.0, 0.0, 0.5) or None
+if lender:
+    nb = kind != "bank"
+    st.sidebar.markdown("**Lender figures (optional)**")
+    st.sidebar.caption("From the lender's latest investor presentation or Basel III / Pillar 3 disclosure. "
+                       "Screener doesn't carry these. Leave 0 to skip; skipped figures aren't scored.")
+    manual["crar"] = st.sidebar.number_input("Capital adequacy (CRAR) %", 0.0, 100.0, 0.0, 0.1) or None
+    manual["slippage"] = st.sidebar.number_input("Gross slippage ratio % (annual)", 0.0, 50.0, 0.0, 0.05) or None
+    manual["pcr_two"] = st.sidebar.number_input("Provision coverage incl. technical write-offs %", 0.0, 100.0, 0.0, 0.5) or None
+    manual["stressed"] = st.sidebar.number_input(
+        "Stage 2 assets % of loans" if nb else "Restructured + SMA-2 % of loans", 0.0, 100.0, 0.0, 0.05) or None
 mcap = sc_meta.get("market_cap", np.nan)
 if pd.isna(mcap) and info.get("marketCap"):
     mcap = info["marketCap"] / ds.CRORE
@@ -251,7 +261,7 @@ special_name = ("Lender forensics" if lender else "Broker forensics" if profile.
 if special_name:
     if sc_res is not None:
         if lender:
-            lend_flags, lend_extras = fx.lender_flags(sc_res["fin"], sc_res["tables"], sc_res["sched"], kind)
+            lend_flags, lend_extras = fx.lender_flags(sc_res["fin"], sc_res["tables"], sc_res["sched"], kind, manual)
         elif profile.broker_layer:
             lend_flags, lend_extras = fx.broker_flags(sc_res["tables"], sc_res["sched"])
         else:
@@ -453,9 +463,24 @@ with t1:
             g.update_layout(title="Asset quality by quarter (standalone, %)", height=320,
                             margin=dict(l=10, r=10, t=50, b=10), legend=dict(orientation="h", y=-0.25))
             st.plotly_chart(g, width="stretch")
+        oi_share = lend_extras.get("other_income_share")
+        if oi_share is not None and len(oi_share) >= 2:
+            g = go.Figure()
+            g.add_scatter(x=list(oi_share.index), y=(oi_share * 100).values, mode="lines+markers",
+                          name="Other income share")
+            g.update_layout(title="Other income as % of income (bank-only accounts)", height=280,
+                            margin=dict(l=10, r=10, t=50, b=10))
+            st.plotly_chart(g, width="stretch")
+        info_tbl = lend_extras.get("lender_info")
+        if info_tbl is not None and not info_tbl.empty:
+            with st.expander("Context — not scored (inputs too rough to score)"):
+                st.dataframe(info_tbl, hide_index=True, width="stretch")
+        typed = [k for k, v in manual.items() if v]
         st.caption("Screener doesn't split loans or provisions for lenders, so the loan book is approximated from "
-                   "its 'Other Assets' grouping and provision coverage ignores technical write-offs. Check CRAR, "
-                   "slippages and restructured book in the annual report or investor presentation.")
+                   "its 'Other Assets' grouping and the automatic provision coverage ignores technical write-offs. "
+                   + ("Typed-in disclosure figures are included above." if typed else
+                      "Type CRAR, slippages, coverage incl. write-offs and the stressed book into the sidebar "
+                      "(from the investor presentation) to score them."))
     elif profile.broker_layer or profile.insurer_layer:
         st.dataframe(flags_table(lend_flags + fin_flags), hide_index=True, width="stretch")
         series = {f.title: f.series for f in lend_flags if f.series is not None}
@@ -691,7 +716,7 @@ Bands: under 20 low · 20–35 some questions · 35–55 elevated · above 55 hi
 - Related-party transactions and auditor remarks live in the annual report, which this version does not read; the contingent-liability figure comes from Screener's summary, which lists it only when large.
 - Keyword matching can both miss and over-match; always open the filing.
 - Models like Beneish were built on US companies and produce false positives, especially for fast growers.
-- Banks and NBFCs get a lighter lender module (Screener doesn't split loans or provisions).
+- Banks and NBFCs get a lighter lender module (Screener doesn't split loans or provisions). CRAR, slippages, coverage incl. write-offs and the stressed book are scored only when you type them in from the lender's disclosures; other-income reliance uses the bank-only (standalone) accounts.
 - Brokers get client-money, leverage and receivable checks; Screener's 'Other Liabilities' stands in for client liabilities, so client money parked as exchange margin or deposits can make cover look lower than it is.
 - Insurers get balance-sheet and cash-flow checks; solvency, combined ratio and persistency come only from figures you type in from IRDAI disclosures, since claims aren't split out on Screener.
 - Peer groups are Screener's industry lists; if a whole sector shares a problem, peers can make it look normal.

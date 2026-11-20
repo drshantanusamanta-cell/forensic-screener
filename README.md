@@ -42,7 +42,7 @@ Screens one NSE-listed company for the accounting, ownership and filing patterns
 | Stockbroker | Industrial cash tests replaced by broker checks: client-money cover (cash ÷ client liabilities — the Karvy pattern), borrowings ÷ net worth, debt-funded growth, client receivables; tax, intangibles and receivable trend still scored |
 | Exchange / clearing | Cash-conversion, accrual and cash-yield tests dropped (clearing-member money distorts them); treasury income threshold looser |
 | AMC / registrar / depository / ratings | Asset-light fee rules: stricter cash conversion and debt limits; treasury-income threshold looser; Sloan, cash-yield, inventory, CWIP and Altman dropped |
-| Bank / NBFC | Accounting tests replaced by a lender module: gross NPA level and trend, provision coverage, loan-book growth, loan vs deposit growth (banks) or leverage (NBFCs), equity cushion, ROA trend |
+| Bank / NBFC | Accounting tests replaced by a lender module: gross NPA level and trend, provision coverage, loan-book growth, loan vs deposit growth (banks) or leverage (NBFCs), equity cushion, ROA trend, other-income reliance (bank-only accounts); optional typed-in CRAR, gross slippage, coverage incl. write-offs and restructured + SMA-2 / Stage 2 book |
 | Life insurer | Insurer checks: investments ÷ policyholder liabilities, net worth ÷ liabilities, operating cash flow, reliance on investment income, margin trend; optional solvency ratio and 13th-month persistency typed in from IRDAI disclosures |
 | General / health insurer | Same insurer checks plus tax; optional solvency ratio and combined ratio typed in from IRDAI disclosures |
 
@@ -109,7 +109,7 @@ To run locally: `pip install -r requirements.txt` then `streamlit run app.py`.
 - The share count is derived as net profit ÷ EPS (bonus-adjusted), so it is skipped in years with EPS below ₹0.5.
 - Screener shows restated figures, so the timeline and backtest score restated years on the corrected numbers.
 - Keyword matching can miss filings and can over-match. Open each filing.
-- Lender checks are approximate: Screener doesn't split loans or provisions, so the loan book comes from its "Other Assets" grouping and provision coverage ignores technical write-offs. Check CRAR, slippages and the restructured book in the bank's own disclosures.
+- Lender checks are approximate: Screener doesn't split loans or provisions, so the loan book comes from its "Other Assets" grouping and provision coverage ignores technical write-offs. Type CRAR, slippages, coverage incl. write-offs and the stressed book into the sidebar from the bank's own disclosures to score them (thresholds other than RBI's CRAR floors are judgement-based). A 'Context — not scored' table shows a rough core-income margin and whether a falling NPA % came from loan growth.
 - If a whole sector shares a problem, peer comparison can make a company look normal; read the original severity on adjusted flags.
 - Broker client-money cover uses Screener's 'Other Liabilities' as client liabilities; money parked as exchange margin or fixed deposits can sit outside 'cash', understating cover.
 - Insurer claims, commission and reserve changes aren't split on Screener, so solvency, combined ratio and persistency come only from figures you enter.
