@@ -13,7 +13,13 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import logging
+
 import yfinance as yf
+
+# Yahoo rate-limits Streamlit Cloud's shared servers; yfinance then logs "Invalid Crumb" / 401 lines for every
+# failed call. Failures are handled in the app (Screener is the main source), so keep the log readable.
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 import data_sources as ds
 import forensics as fx
@@ -187,15 +193,21 @@ if not symbol:
 # Load
 # --------------------------------------------------------------------------
 with st.spinner(f"Collecting data for {symbol}…"):
-    fin_yf, info, fin_err = get_financials(symbol)
-    fin, source, src_note = fin_yf, "Yahoo Finance", None
     sc_res, sc_err = get_screener(symbol, consolidated, st.session_state.get("company"), 2)
     sc_meta = sc_res["meta"] if sc_res else {}
-    if src_choice.startswith("Screener"):
-        if sc_res is not None and sc_res["fin"].shape[1] >= 2:
-            fin, source, src_note = sc_res["fin"], f"Screener.in · {sc_meta['view']}", ds.SCREENER_NOTE
-            fin_err = None
-        else:
+    sc_ok = sc_res is not None and sc_res["fin"].shape[1] >= 2
+    if src_choice.startswith("Screener") and sc_ok:
+        # Screener is enough: Yahoo is called only on demand (Data tab cross-check), which avoids its
+        # rate limits on shared cloud servers. Name / sector / industry come from Screener's NSE classification.
+        _cls = sc_meta.get("classification") or {}
+        fin_yf, fin_err = None, None
+        info = {"longName": sc_meta.get("name"), "sector": _cls.get("Sector") or _cls.get("Broad Sector"),
+                "industry": _cls.get("Industry") or _cls.get("Broad Industry")}
+        fin, source, src_note = sc_res["fin"], f"Screener.in · {sc_meta['view']}", ds.SCREENER_NOTE
+    else:
+        fin_yf, info, fin_err = get_financials(symbol)
+        fin, source, src_note = fin_yf, "Yahoo Finance", None
+        if src_choice.startswith("Screener"):
             st.warning(f"Screener.in unavailable ({sc_err}); using Yahoo Finance instead.")
     if upload is not None:
         sc_fin, sc_note = ds.parse_screener_export(upload.getvalue())
@@ -654,6 +666,13 @@ with t4:
         st.dataframe(fin.round(1), width="stretch")
         st.download_button("Download data (CSV)", fin.round(2).to_csv().encode(),
                            file_name=f"{symbol}_financials.csv", mime="text/csv")
+    if sc_res is not None and fin_yf is None and st.checkbox(
+            "Cross-check Screener figures against Yahoo Finance",
+            help="Calls Yahoo only when ticked. Yahoo sometimes rate-limits shared cloud servers; if so, try later."):
+        with st.spinner("Fetching Yahoo statements…"):
+            fin_yf, _yinfo, _yerr = get_financials(symbol)
+        if fin_yf is None:
+            st.caption(f"Yahoo unavailable right now ({_yerr or 'no data'}).")
     if sc_res is not None and fin_yf is not None:
         sc_fin = sc_res["fin"]
         common = [c for c in sc_fin.columns if c in fin_yf.columns][-3:]
