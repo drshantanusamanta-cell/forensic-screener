@@ -927,8 +927,11 @@ def _quarter_series(tables: dict, label: str) -> pd.Series:
     return s[s.index.notna()].dropna().sort_index()
 
 
-def lender_flags(fin: pd.DataFrame, tables: dict, sched: dict, kind: str) -> tuple[list[Flag], dict]:
-    """kind: 'bank' or 'nbfc'."""
+def lender_flags(fin: pd.DataFrame, tables: dict, sched: dict, kind: str,
+                 manual: dict | None = None) -> tuple[list[Flag], dict]:
+    """kind: 'bank' or 'nbfc'. manual: optional figures typed in from the lender's own disclosures —
+    {'crar': %, 'slippage': %, 'pcr_two': %, 'stressed': %}. A typed figure adds a scored check;
+    a blank one adds nothing, so coverage isn't diluted by checks the user chose to skip."""
     L = "Lender forensics"
     flags: list[Flag] = []
     extras: dict = {}
@@ -1040,7 +1043,141 @@ def lender_flags(fin: pd.DataFrame, tables: dict, sched: dict, kind: str) -> tup
         f.detail = f"Net profit ÷ average total assets; watch if falling every year and below {floor:.1%}."
         f.series = roa
     flags.append(f)
+
+    # L8 profit reliance on other income (bank-only accounts)
+    lpl, lbs = _annual_lender(tables)
+    flags.append(_lender_other_income_flag(lpl, bank, extras))
+
+    # L9–L12 figures typed in from the lender's own disclosures
+    typed = _lender_manual_flags(manual or {}, bank)
+    if any(f.key == "m_crar" for f in typed):
+        flags = [f for f in flags if f.key != "capital"]    # the real CRAR replaces the equity-cushion proxy
+    flags.extend(typed)
+
+    # context only (not scored): rough margin and NPA-dilution reads
+    extras["lender_info"] = _lender_info(lpl, lbs, gnpa, loans)
     return flags, extras
+
+
+def _annual_lender(tables: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Bank-only annual P&L and balance sheet (falls back to the main tables when no standalone copy exists)."""
+    t = tables or {}
+    src = {"profit-loss": t.get("lender_pl"), "balance-sheet": t.get("lender_bs")}
+    if src["profit-loss"] is None or getattr(src["profit-loss"], "empty", True):
+        src = {"profit-loss": t.get("profit-loss", pd.DataFrame()), "balance-sheet": t.get("balance-sheet", pd.DataFrame())}
+    a = annual_tables(src)
+    return a["profit-loss"], a["balance-sheet"]
+
+
+def _lender_other_income_flag(pl: pd.DataFrame, bank: bool, extras: dict) -> Flag:
+    f = Flag("l_other_income", "Lender forensics", "Profit reliance on other income (bank-only accounts)", 1.5,
+             why="Treasury gains, stake sales and one-off recoveries sit in 'Other Income'. When they carry a "
+                 "rising share of income, the core lending business may be weaker than profit suggests.",
+             benign="Fee-led franchises (cards, wealth, transaction banking) earn more non-interest income by "
+                    "design; disclosed one-off stake sales are not hidden.")
+    rev, intr, oi = _t(pl, "Revenue", "Sales"), _t(pl, "Interest"), _t(pl, "Other Income")
+    core = rev - intr
+    share = _safe_div(oi, core + oi)
+    share = share[(core + oi) > 0].dropna()
+    if len(share) < 3:
+        f.detail = "Needs at least three years of the lender's own (standalone) P&L from Screener."
+        return f
+    lvl_amb, lvl_red = (0.40, 0.50) if bank else (0.15, 0.30)
+    now, prior = share.iloc[-1], share.iloc[-3:-1].mean()
+    jump = now - prior
+    sev = RED if now > lvl_red else AMBER if now > lvl_amb else GREEN
+    if jump > 0.10:
+        sev = RED
+    elif jump > 0.06:
+        sev = max(sev, AMBER)
+    f.severity = sev
+    f.value = f"{_fmt_pct(now)} of income ({jump * 100:+.1f} pts vs prior 2 yrs)"
+    f.detail = (f"Other income ÷ (net interest income + other income), latest year. Level above {lvl_amb:.0%} "
+                f"watch, above {lvl_red:.0%} red; a jump of more than 6 points over the previous two years' "
+                "average is watch, 10 points red. Screener doesn't split treasury gains from fees, so read the "
+                "notes to accounts before concluding.")
+    f.series = share
+    extras["other_income_share"] = share
+    return f
+
+
+# thresholds: (amber, red, higher_is_worse) — RBI minimums for CRAR; the rest are judgement-based, not back-tested
+_MANUAL_RULES = {
+    "crar":     {"bank": (13.0, 11.5, False), "nbfc": (17.0, 15.0, False)},
+    "slippage": {"bank": (2.0, 3.0, True),    "nbfc": (3.0, 4.5, True)},
+    "pcr_two":  {"bank": (75.0, 65.0, False), "nbfc": (60.0, 50.0, False)},
+    "stressed": {"bank": (1.0, 2.0, True),    "nbfc": (5.0, 8.0, True)},
+}
+
+
+def _lender_manual_flags(manual: dict, bank: bool) -> list[Flag]:
+    k = "bank" if bank else "nbfc"
+    L, out = "Lender forensics", []
+    specs = [
+        ("crar", "m_crar", "Capital adequacy (CRAR, typed in)", 2,
+         "Capital below the regulatory floor forces a capital raise, slower lending or RBI action.",
+         "A capital raise announced but not yet completed.",
+         "RBI floor incl. conservation buffer 11.5% for banks; 15% for NBFCs."),
+        ("slippage", "m_slip", "Gross slippage ratio (typed in)", 2,
+         "Fresh bad loans each year show stress before the NPA ratio does — recoveries and write-offs can "
+         "hold the NPA % down while new defaults pile up.",
+         "One large, well-provided corporate account can lift a single year.",
+         "Annual fresh NPAs ÷ standard advances at the start of the year."),
+        ("pcr_two", "m_pcr", "Provision coverage incl. technical write-offs (typed in)", 1.5,
+         "Low coverage after counting write-offs means profits could take a hit if recoveries disappoint.",
+         "Well-secured books (gold, home loans) need less cover.",
+         "The figure most banks print in their investor presentation; replaces the rough 1 − NNPA ÷ GNPA read."),
+        ("stressed", "m_stress", "Stressed book: restructured + SMA-2 (Stage 2 for NBFCs, typed in)", 2,
+         "Loans already overdue or restructured are where evergreening hides; they turn into NPAs next.",
+         "Covid-era restructuring that is now running down.",
+         "As a % of loans. SMA-2 = 61–90 days overdue."),
+    ]
+    for name, key, title, w, why, benign, what in specs:
+        v = manual.get(name)
+        if not v:
+            continue
+        amb, red, worse_high = _MANUAL_RULES[name][k]
+        f = Flag(key, L, title, w, why=why, benign=benign)
+        if worse_high:
+            f.severity = RED if v > red else AMBER if v > amb else GREEN
+            band = f"Above {amb:g}% watch, above {red:g}% red"
+        else:
+            f.severity = RED if v < red else AMBER if v < amb else GREEN
+            band = f"Below {amb:g}% watch, below {red:g}% red"
+        f.value = f"{v:.2f}%"
+        f.detail = f"Entered manually from the lender's disclosure. {what} {band}."
+        out.append(f)
+    return out
+
+
+def _lender_info(pl: pd.DataFrame, bs: pd.DataFrame, gnpa: pd.Series, loans: pd.Series) -> pd.DataFrame:
+    """Context rows shown beside the lender checks but not scored (the inputs are too rough to score)."""
+    rows = []
+    rev, intr, ta = _t(pl, "Revenue", "Sales"), _t(pl, "Interest"), _t(bs, "Total Assets")
+    margin = _safe_div(rev - intr, _avg(ta)).dropna()
+    if len(margin) >= 2:
+        trend = margin.iloc[-1] - margin.iloc[max(0, len(margin) - 4)]
+        rows.append({"Measure": "Core income margin: (revenue − interest paid) ÷ average total assets",
+                     "Latest": f"{margin.iloc[-1] * 100:.2f}%",
+                     "Change": f"{trend * 100:+.2f} pts over {min(3, len(margin) - 1)} yr",
+                     "How to read": "A rough stand-in for NIM (bank-only accounts), not the reported NIM; for banks revenue is "
+                                    "interest earned, for NBFCs it also includes fees. A steady fall means lending "
+                                    "is getting less profitable."})
+    lp = loans.dropna() if loans is not None else pd.Series(dtype=float)
+    if len(gnpa) >= 2 and len(lp) >= 2:
+        g_now = gnpa.iloc[-1]
+        ref = gnpa[gnpa.index <= gnpa.index[-1] - pd.Timedelta(days=330)]
+        g_then = ref.iloc[-1] if len(ref) else gnpa.iloc[0]
+        lg = lp.iloc[-1] / lp.iloc[-2] - 1 if lp.iloc[-2] > 0 else np.nan
+        if pd.notna(lg) and g_then > 0:
+            implied = (1 + lg) * (g_now / g_then) - 1
+            rows.append({"Measure": "Implied change in gross NPA amount (GNPA % × loan-book proxy)",
+                         "Latest": f"{implied * 100:+.0f}% a year",
+                         "Change": f"GNPA {g_then:.2f}% → {g_now:.2f}%; loans {lg * 100:+.0f}%",
+                         "How to read": "If the NPA % is falling but this is rising, the ratio improved because "
+                                        "the loan book grew, not because bad loans shrank. The loan proxy reads "
+                                        "high, so treat this as a prompt to check, not a verdict."})
+    return pd.DataFrame(rows)
 
 
 # --------------------------------------------------------------------------

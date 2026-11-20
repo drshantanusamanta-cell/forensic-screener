@@ -626,6 +626,10 @@ class ScreenerClient:
                 st_tables, _ = self.load_light(st_path) if cons else (tables, None)
                 if st_tables is not None:
                     tables["npa_quarters"] = st_tables.get("quarters", pd.DataFrame())
+                    # bank-only P&L and balance sheet: consolidated pages fold in insurance / AMC arms,
+                    # whose premiums and fees land in 'Other Income' and distort lender ratios
+                    tables["lender_pl"] = st_tables.get("profit-loss", pd.DataFrame())
+                    tables["lender_bs"] = st_tables.get("balance-sheet", pd.DataFrame())
             peer_list = self.peers(warehouse_id, url) if warehouse_id else []
             return {"fin": fin, "shareholding": shp, "meta": meta, "tables": tables,
                     "sched": sched, "peers": peer_list}, None
